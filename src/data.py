@@ -29,6 +29,12 @@ GAUGE_ND = {"P059": 286, "P056": 84, "P016": 60, "P007": 55, "P032": 19,
             "P045": 17, "P023": 16, "P051": 241, "P017": 158, "P008": 59,
             "P046": 29, "P027": 22, "P037": 22, "P057": 16}
 
+# Phase 1 study metrics, copied verbatim from app_fatigue_framework/config.py
+# (5-fold cross-validation result of the segmentation study, not per-specimen).
+STUDY_METRICS = {"Dice": 0.805, "Precision": 0.862, "Recall": 0.841, "IoU": 0.709}
+FOLD_DICE = [0.8043, 0.7936, 0.7956, 0.8254, 0.8078]
+HELDOUT_SIZE_R2 = 0.986
+
 
 def load():
     fat = {("P%03d" % int(d["specimen"][1:])): d

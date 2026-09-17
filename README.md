@@ -11,13 +11,22 @@ private `Research files/` working tree, not recomputed or approximated for
 display. Where a stage has not been run, the app says so rather than showing an
 illustrative placeholder.
 
-## What is real vs. pending
+## Layout
+
+A single-page app with a top pipeline bar (Phase 1-4, styled after the project's
+own desktop demo tool), not a sidebar. Every chart is a live Plotly graph built
+from the underlying data at render time — nothing is a pre-rendered PNG. The one
+exception is the crack-growth GIF (Phase 3), which is real simulation footage,
+not a statistical chart, so there is nothing to "graph" instead.
+
+Phase numbering matches the thesis report exactly (not the exploratory "Monte
+Carlo" phase that appeared in an earlier, superseded version of the demo app):
 
 | Phase | Status |
 |---|---|
 | 1 · Segmentation | Real — nnU-Net v2, 5-fold cross-validated |
-| 2 · Defect extraction & peridynamics | Real — 1342-defect catalogue; damage-coefficient A calibrated against the dataset-specific Paris coefficient. To-failure specimen re-run still owed. |
-| 3 · Monte Carlo | Not yet run — stated plainly, no placeholder shown |
+| 2 · Defect extraction | Real — 1342-defect catalogue, AOP24 cross-check, and a live raw CT / segmentation overlay / extracted-region viewer on real CT slices |
+| 3 · Peridynamic crack growth | Real — damage-coefficient A calibrated against the dataset-specific Paris coefficient; per-specimen fatigue-life results appear automatically once `run_all_specimens.py --redo` finishes |
 | 4 · Validation & PIML | Real — closed-loop validation, statistical ladder, sign-constrained physics regression, and a new physics-informed neural network (PINN) |
 
 ## The two PIML arms (Phase 4)
@@ -59,10 +68,12 @@ streamlit run app.py
 
 ## Data included in this repo
 
-Only small, derived artefacts (catalogues, verification JSON, figures, the crack-
-growth GIF) are committed — under 2 MB total. The raw 127 GB ORNL HDF5 archive
-and the 436 MB held-out CT/mask folder stay in the private `Research files/`
-working tree and are not needed to run this app.
+Small derived artefacts (catalogues, verification JSON, the crack-growth GIF)
+plus a curated set of real CT and predicted-mask slices for two specimens
+(P017, P059 — the z-range where each actually has predicted defects), ~55 MB
+total, for the live raw/overlay/extracted-region viewer on the Phase 2 page.
+The raw 127 GB ORNL HDF5 archive and the full 436 MB held-out CT/mask folder
+stay in the private `Research files/` working tree.
 
 ## Known limitations (see the Phase 4 page for the full list)
 
