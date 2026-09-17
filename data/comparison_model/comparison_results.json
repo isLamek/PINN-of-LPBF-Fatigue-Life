@@ -1,0 +1,547 @@
+{
+ "generated": "2026-09-17T09:29:41",
+ "n_specimens": 60,
+ "n_runouts": 4,
+ "n_failures": 56,
+ "n_gauge": 41,
+ "n_radius": 15,
+ "n_measured": 14,
+ "fracture_location": {
+  "Gage, Surface": 41,
+  "At Radius, Surface": 15
+ },
+ "ladder": [
+  {
+   "model": "A1  stress only (Basquin), gauge failures",
+   "n": 41,
+   "params": 2,
+   "r2": 0.5774327585438723,
+   "loo_rmse": 0.32334299648058346,
+   "loo_factor": 2.1054406152107616
+  },
+  {
+   "model": "A2  stress + bulk porosity, gauge failures",
+   "n": 41,
+   "params": 3,
+   "r2": 0.8813060799046576,
+   "loo_rmse": 0.1762602787684376,
+   "loo_factor": 1.5005838870183905
+  },
+  {
+   "model": "A3  stress only, all failures",
+   "n": 56,
+   "params": 2,
+   "r2": 0.6300620625860425,
+   "loo_rmse": 0.3042510102006319,
+   "loo_factor": 2.0148884632007578
+  },
+  {
+   "model": "B1  stress only",
+   "n": 14,
+   "params": 2,
+   "r2": 0.7519757087579515,
+   "loo_rmse": 0.3026039308772173,
+   "loo_factor": 2.007261389643779
+  },
+  {
+   "model": "B2  Murakami dK (no fitted defect term)",
+   "n": 14,
+   "params": 2,
+   "r2": 0.8989582110163618,
+   "loo_rmse": 0.18714371394365956,
+   "loo_factor": 1.5386637207944844
+  },
+  {
+   "model": "B3  stress + sqrt(area), constrained",
+   "n": 14,
+   "params": 3,
+   "r2": 0.9322264585953279,
+   "loo_rmse": 0.16664549059297853,
+   "loo_factor": 1.467727699897915
+  },
+  {
+   "model": "B4  stress + sqrt(area), unconstrained",
+   "n": 14,
+   "params": 3,
+   "r2": 0.9322264585953279,
+   "loo_rmse": 0.16664549059297853,
+   "loo_factor": 1.467727699897915
+  },
+  {
+   "model": "B5  stress + sqrt(area) + porosity",
+   "n": 14,
+   "params": 4,
+   "r2": 0.9561425717500003,
+   "loo_rmse": 0.15666230246681317,
+   "loo_factor": 1.4343736632024755
+  },
+  {
+   "model": "B6  stress + sqrt(area) + defect shape, constrained",
+   "n": 14,
+   "params": 4,
+   "r2": 0.9360169654867302,
+   "loo_rmse": 0.17976231281002555,
+   "loo_factor": 1.5127331106008757
+  },
+  {
+   "model": "C1  Physics-informed neural network (PINN)",
+   "n": 14,
+   "params": 113,
+   "r2": 0.972335013282486,
+   "loo_rmse": 0.19171251575094658,
+   "loo_factor": 1.5549359901737123
+  }
+ ],
+ "consistency": {
+  "m_fitted": 4.348497597118932,
+  "m_given": 3.94,
+  "b_a_fitted": -0.5547467074518098,
+  "b_a_theory": -0.42126564744615425
+ },
+ "failure_criterion": {
+  "e1_s0": 0.02442731588540957,
+  "collapse": [
+   {
+    "smax": 300.0,
+    "limit": "flow stress",
+    "limit_mpa": 563.0,
+    "frac": 0.46714031971580816,
+    "Ac_mm2": 9.46813975151985,
+    "a_mm": 2.4551181180051227,
+    "sqrt_area_um": 3077.034246075245,
+    "Kmax": 17.12559792148712
+   },
+   {
+    "smax": 300.0,
+    "limit": "tensile strength",
+    "limit_mpa": 642.0,
+    "frac": 0.5327102803738317,
+    "Ac_mm2": 10.797131330301818,
+    "a_mm": 2.621767970229178,
+    "sqrt_area_um": 3285.8988618491926,
+    "Kmax": 17.697286203625954
+   },
+   {
+    "smax": 450.0,
+    "limit": "flow stress",
+    "limit_mpa": 563.0,
+    "frac": 0.20071047957371224,
+    "Ac_mm2": 4.068060045329822,
+    "a_mm": 1.6092878735749934,
+    "sqrt_area_um": 2016.9432429619385,
+    "Kmax": 20.797813342237443
+   },
+   {
+    "smax": 450.0,
+    "limit": "tensile strength",
+    "limit_mpa": 642.0,
+    "frac": 0.2990654205607477,
+    "Ac_mm2": 6.061547413502777,
+    "a_mm": 1.9644085457407885,
+    "sqrt_area_um": 2462.0210018403127,
+    "Kmax": 22.97823751134917
+   }
+  ],
+  "kic": 200.0,
+  "kmax_at_collapse": 22.97823751134917,
+  "fracture_location": {
+   "Gage, Surface": 41,
+   "At Radius, Surface": 15
+  }
+ },
+ "threshold_sweep": [
+  {
+   "dkth": 0.0,
+   "n_finite": 14,
+   "geometric_bias": 0.8845570435490927,
+   "max_bias": 1.4735359996679733
+  },
+  {
+   "dkth": 1.0,
+   "n_finite": 14,
+   "geometric_bias": 1.371610523653638,
+   "max_bias": 2.7317124211368387
+  },
+  {
+   "dkth": 2.0,
+   "n_finite": 14,
+   "geometric_bias": 2.3133705077403817,
+   "max_bias": 6.00268751503268
+  },
+  {
+   "dkth": 3.0,
+   "n_finite": 14,
+   "geometric_bias": 4.49100705732633,
+   "max_bias": 19.476198062292188
+  },
+  {
+   "dkth": 4.0,
+   "n_finite": 14,
+   "geometric_bias": 12.196738005174945,
+   "max_bias": 704.5148206965011
+  },
+  {
+   "dkth": 5.0,
+   "n_finite": 13,
+   "geometric_bias": 41.98923111530014,
+   "max_bias": 200089.9068722235
+  }
+ ],
+ "phase4": {
+  "log10_N_pred": {
+   "rmse": 1.0727320452111175,
+   "bias": 1.0043152045779244,
+   "factor": 11.823118575816249
+  },
+  "log10_N_pred_calibrated": {
+   "rmse": 0.09226805240077725,
+   "bias": 3.1720657846433045e-16,
+   "factor": 1.2367105123060163
+  },
+  "log10_N_pathA": {
+   "rmse": 0.13254779505754574,
+   "bias": -0.030786974423767495,
+   "factor": 1.356899851879399
+  },
+  "log10_N_pathB": {
+   "rmse": 0.14709733679766926,
+   "bias": 0.07143901790383524,
+   "factor": 1.403128147186183
+  },
+  "n": 14
+ },
+ "points_A2": [
+  {
+   "specimen": "P002",
+   "smax": 450,
+   "measured": 15160,
+   "predicted": 24431.39707869352
+  },
+  {
+   "specimen": "P003",
+   "smax": 300,
+   "measured": 339429,
+   "predicted": 342529.6150952497
+  },
+  {
+   "specimen": "P006",
+   "smax": 450,
+   "measured": 72340,
+   "predicted": 60438.24481323145
+  },
+  {
+   "specimen": "P007",
+   "smax": 300,
+   "measured": 342510,
+   "predicted": 347572.6099244508
+  },
+  {
+   "specimen": "P009",
+   "smax": 300,
+   "measured": 282450,
+   "predicted": 190058.56362638736
+  },
+  {
+   "specimen": "P012",
+   "smax": 300,
+   "measured": 436876,
+   "predicted": 343200.57539418206
+  },
+  {
+   "specimen": "P014",
+   "smax": 300,
+   "measured": 699421,
+   "predicted": 365888.23377526953
+  },
+  {
+   "specimen": "P015",
+   "smax": 450,
+   "measured": 81400,
+   "predicted": 56978.63477409619
+  },
+  {
+   "specimen": "P016",
+   "smax": 300,
+   "measured": 360052,
+   "predicted": 351956.746186021
+  },
+  {
+   "specimen": "P017",
+   "smax": 450,
+   "measured": 18803,
+   "predicted": 34498.9652268513
+  },
+  {
+   "specimen": "P019",
+   "smax": 300,
+   "measured": 738588,
+   "predicted": 600427.7058674336
+  },
+  {
+   "specimen": "P020",
+   "smax": 450,
+   "measured": 159974,
+   "predicted": 89867.16952985029
+  },
+  {
+   "specimen": "P021",
+   "smax": 300,
+   "measured": 380219,
+   "predicted": 724310.6341454972
+  },
+  {
+   "specimen": "P022",
+   "smax": 450,
+   "measured": 167979,
+   "predicted": 125818.04160550557
+  },
+  {
+   "specimen": "P023",
+   "smax": 300,
+   "measured": 1094051,
+   "predicted": 720022.755818266
+  },
+  {
+   "specimen": "P026",
+   "smax": 300,
+   "measured": 119899,
+   "predicted": 162513.5651541797
+  },
+  {
+   "specimen": "P027",
+   "smax": 450,
+   "measured": 120955,
+   "predicted": 92039.15318261832
+  },
+  {
+   "specimen": "P028",
+   "smax": 300,
+   "measured": 726741,
+   "predicted": 636798.4933917772
+  },
+  {
+   "specimen": "P029",
+   "smax": 450,
+   "measured": 211183,
+   "predicted": 112533.03333217221
+  },
+  {
+   "specimen": "P032",
+   "smax": 300,
+   "measured": 873053,
+   "predicted": 693426.7966031672
+  },
+  {
+   "specimen": "P035",
+   "smax": 450,
+   "measured": 17194,
+   "predicted": 25785.347752454367
+  },
+  {
+   "specimen": "P036",
+   "smax": 300,
+   "measured": 461662,
+   "predicted": 526458.5532186666
+  },
+  {
+   "specimen": "P038",
+   "smax": 300,
+   "measured": 417291,
+   "predicted": 616025.9171852261
+  },
+  {
+   "specimen": "P039",
+   "smax": 450,
+   "measured": 58088,
+   "predicted": 113217.5511725236
+  },
+  {
+   "specimen": "P040",
+   "smax": 300,
+   "measured": 507374,
+   "predicted": 503921.66101557756
+  },
+  {
+   "specimen": "P042",
+   "smax": 300,
+   "measured": 156149,
+   "predicted": 267874.9656945037
+  },
+  {
+   "specimen": "P045",
+   "smax": 300,
+   "measured": 436285,
+   "predicted": 582873.5849413304
+  },
+  {
+   "specimen": "P046",
+   "smax": 450,
+   "measured": 90935,
+   "predicted": 94024.95803580104
+  },
+  {
+   "specimen": "P047",
+   "smax": 300,
+   "measured": 395479,
+   "predicted": 594898.3116736616
+  },
+  {
+   "specimen": "P048",
+   "smax": 450,
+   "measured": 124760,
+   "predicted": 88637.01651243102
+  },
+  {
+   "specimen": "P051",
+   "smax": 450,
+   "measured": 25996,
+   "predicted": 25678.08222488882
+  },
+  {
+   "specimen": "P053",
+   "smax": 450,
+   "measured": 90780,
+   "predicted": 132319.52574883768
+  },
+  {
+   "specimen": "P054",
+   "smax": 300,
+   "measured": 1082170,
+   "predicted": 903506.4665439365
+  },
+  {
+   "specimen": "P055",
+   "smax": 450,
+   "measured": 133014,
+   "predicted": 157028.2740200346
+  },
+  {
+   "specimen": "P056",
+   "smax": 300,
+   "measured": 640228,
+   "predicted": 990018.8943944919
+  },
+  {
+   "specimen": "P057",
+   "smax": 450,
+   "measured": 105940,
+   "predicted": 163593.3518013068
+  },
+  {
+   "specimen": "P059",
+   "smax": 300,
+   "measured": 269804,
+   "predicted": 131123.9752191055
+  },
+  {
+   "specimen": "P060",
+   "smax": 450,
+   "measured": 316498,
+   "predicted": 117656.86562814873
+  },
+  {
+   "specimen": "P062",
+   "smax": 450,
+   "measured": 138368,
+   "predicted": 165674.90217426364
+  },
+  {
+   "specimen": "P064",
+   "smax": 450,
+   "measured": 159139,
+   "predicted": 183577.1857573583
+  },
+  {
+   "specimen": "P066",
+   "smax": 450,
+   "measured": 129053,
+   "predicted": 178877.94625556841
+  }
+ ],
+ "points_B3": [
+  {
+   "specimen": "P007",
+   "smax": 300,
+   "measured": 342510,
+   "predicted": 582155.3945586439
+  },
+  {
+   "specimen": "P008",
+   "smax": 450,
+   "measured": 69573,
+   "predicted": 82628.11222378149
+  },
+  {
+   "specimen": "P016",
+   "smax": 300,
+   "measured": 360052,
+   "predicted": 415101.3563715045
+  },
+  {
+   "specimen": "P017",
+   "smax": 450,
+   "measured": 18803,
+   "predicted": 27153.710104221085
+  },
+  {
+   "specimen": "P023",
+   "smax": 300,
+   "measured": 1094051,
+   "predicted": 1077434.149299445
+  },
+  {
+   "specimen": "P027",
+   "smax": 450,
+   "measured": 120955,
+   "predicted": 79743.86474851603
+  },
+  {
+   "specimen": "P032",
+   "smax": 300,
+   "measured": 873053,
+   "predicted": 489165.39148530184
+  },
+  {
+   "specimen": "P037",
+   "smax": 450,
+   "measured": 106528,
+   "predicted": 98249.28778262527
+  },
+  {
+   "specimen": "P045",
+   "smax": 300,
+   "measured": 436285,
+   "predicted": 844950.3358080089
+  },
+  {
+   "specimen": "P046",
+   "smax": 450,
+   "measured": 90935,
+   "predicted": 61018.29051071126
+  },
+  {
+   "specimen": "P051",
+   "smax": 450,
+   "measured": 25996,
+   "predicted": 37670.47140072126
+  },
+  {
+   "specimen": "P056",
+   "smax": 300,
+   "measured": 640228,
+   "predicted": 394615.3138164729
+  },
+  {
+   "specimen": "P057",
+   "smax": 450,
+   "measured": 105940,
+   "predicted": 123937.55770168224
+  },
+  {
+   "specimen": "P059",
+   "smax": 300,
+   "measured": 269804,
+   "predicted": 200982.91151412766
+  }
+ ]
+}
