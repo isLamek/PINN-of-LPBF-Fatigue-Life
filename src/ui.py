@@ -9,8 +9,8 @@ PANEL = "#F4F1EC"
 
 PHASES = [
     ("phase1", "Phase 1", "Segmentation", "real"),
-    ("phase2", "Phase 2", "Defect extraction", "real"),
-    ("phase3", "Phase 3", "Peridynamic crack growth", "real"),
+    ("phase2", "Phase 2", "Defect extraction & crack growth", "real"),
+    ("phase3", "Phase 3", "Fatigue life prediction", "real"),
     ("phase4", "Phase 4", "Validation & PIML", "real"),
 ]
 STATUS_LABEL = {"real": "REAL RESULTS", "preview": "PREVIEW", "pending": "PENDING"}

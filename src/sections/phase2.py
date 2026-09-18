@@ -33,12 +33,31 @@ def _region_grid(rgb, regions, max_labels=6):
 
 
 def render():
-    st.title("Phase 2 · Defect extraction")
+    st.title("Phase 2 · Defect extraction & crack growth")
     badge("REAL RESULTS", "real")
     st.caption(
-        "3-D connected-components labelling of the Phase 1 predicted flaw masks, "
-        "cross-checked against the AOP24 pre-extracted cluster reference derived "
-        "from the same Snow dataset."
+        "Two steps on real data: (1) isolate and size every defect from the "
+        "Phase 1 predicted masks, (2) grow a crack from the governing defect "
+        "with peridynamics. Phase 3 turns that crack path into an actual cycle "
+        "count — this phase is about the geometry and the mechanics."
+    )
+
+    st.markdown("#### How a defect becomes a number")
+    st.markdown(
+        "Every defect is isolated by 3-D connected-components labelling of the "
+        "predicted mask, then sized the way fracture mechanics actually uses "
+        "defect size — not by volume, but by the **square root of its projected "
+        "area** on the plane perpendicular to the load axis (the Murakami "
+        "parameter):"
+    )
+    st.latex(r"\sqrt{\text{area}} \;=\; \sqrt{A_{\text{projected}}}")
+    st.caption(
+        "This one number is what both the classical Murakami/Paris model "
+        "(Phase 4) and the peridynamic crack-growth simulation (below) treat as "
+        "the initial crack size $a_0$. Flatness — the build-direction extent "
+        "over the larger in-plane extent — separates lack-of-fusion pancakes "
+        "(≈ 0.1) from spherical gas pores (≈ 1); it distinguishes shape without "
+        "assuming which is worse until Phase 4 tests that assumption."
     )
 
     cat = pd.read_csv(os.path.join(DATA, "phase2_defect_catalogue.csv"))
@@ -130,3 +149,43 @@ def render():
     st.plotly_chart(fig2, width='stretch')
     st.dataframe(view.sort_values("sqrt_area_um", ascending=False), width='stretch',
                 hide_index=True, height=260)
+
+    st.divider()
+    st.subheader("Growing a crack from the governing defect")
+    st.markdown(
+        "A 2-D section is cut through the largest defect and modelled as a "
+        "**bond-based peridynamic** mesh — material points connected by bonds "
+        "that carry force proportional to how much they stretch, instead of "
+        "solving a differential equation on a continuum. The advantage for a "
+        "crack problem: a bond simply **breaks** when it stretches too far, so "
+        "a crack is not a special boundary condition, it is bonds going to zero."
+    )
+    st.markdown("Each bond carries a remaining life $\\lambda$, starting at 1, that falls under cyclic load:")
+    st.latex(r"\frac{d\lambda_i}{dN} = -A \cdot \varepsilon_i^{\,\beta} \quad (\varepsilon_i > \varepsilon_{th}), "
+            r"\qquad \text{bond } i \text{ breaks when } \lambda_i \le 0")
+    st.caption(
+        "$\\varepsilon_i$ is bond $i$'s cyclic strain range, $A$ a rate "
+        "coefficient, $\\beta$ a rate exponent. Near a crack tip the bond strain "
+        "scales with the stress intensity factor ($\\varepsilon \\sim K$), so the "
+        "crack advances at $da/dN \\sim (\\Delta K)^{\\beta}$ — the Paris law, with "
+        "exponent $\\beta$. $\\beta$ is therefore **set** to the measured Paris "
+        "exponent (3.94) and is not fitted; only the rate coefficient $A$ is "
+        "calibrated — see Phase 3."
+    )
+
+    st.markdown(
+        "**Real measured defect field, P017, 300 MPa at R = 0.1.** Cyan = "
+        "pre-existing lack-of-fusion defects (real size/shape from the "
+        "catalogue above; positions are a random realisation since the "
+        "catalogue records size and shape, not coordinates). Orange = fatigue "
+        "damage accumulated since cycle zero."
+    )
+    gif = os.path.join(ROOT, "assets", "phase2_crack_growth.gif")
+    if os.path.exists(gif):
+        st.image(gif, width='stretch')
+    st.warning(
+        "This animation's cycle count predates the Phase 3 damage-coefficient "
+        "calibration — it shows the crack **path**, which does not depend on A, "
+        "not a life. Phase 3 has the calibrated numbers.",
+        icon="⚠️",
+    )

@@ -1,11 +1,14 @@
 import plotly.graph_objects as go
 import streamlit as st
 
+from src import ct_viewer as cv
 from src.data import STUDY_METRICS, FOLD_DICE, HELDOUT_SIZE_R2
 from src.ui import badge
 
 ACCENT = "#B5473A"
 GREY = "#8A9096"
+SPEC_LABELS = {"SN_P017": "P017 — governing defect 1017 µm (largest of the 14)",
+              "SN_P059": "P059 — most defects in gauge (286)"}
 
 
 def render():
@@ -17,6 +20,36 @@ def render():
         "nnUNetTrainer_200epochs, 5-fold cross-validation."
     )
 
+    st.subheader("The result: raw CT vs. predicted defect mask")
+    st.caption(
+        "This is what segmentation actually produces — every pixel of the raw "
+        "CT slice labelled metal or defect. Extracting and sizing those "
+        "regions into a defect catalogue is Phase 2's job, not this one."
+    )
+    specs = cv.available_specimens()
+    if not specs:
+        st.warning("No CT slice data found in data/ct_slices/.", icon="⚠️")
+    else:
+        spec = st.selectbox("Specimen", specs, format_func=lambda s: SPEC_LABELS.get(s, s),
+                            key="p1_spec")
+        zs = cv.list_slices(spec)
+        z_idx = st.slider("z slice", 0, len(zs) - 1, len(zs) // 2,
+                          format=f"slice %d of {len(zs)}", key="p1_z")
+        z = zs[z_idx]
+        st.caption(f"z{z:04d} · build height {z * cv.LAYER_UM / 1000.0:.2f} mm")
+        ct = cv.load_ct_slice(spec, z)
+        overlay = cv.composite_slice(spec, z)
+        v1, v2 = st.columns(2)
+        with v1:
+            st.markdown("**Raw CT**")
+            if ct is not None:
+                st.image((ct * 255).astype("uint8"), width='stretch')
+        with v2:
+            st.markdown("**nnU-Net predicted mask (red)**")
+            if overlay is not None:
+                st.image(overlay, width='stretch')
+
+    st.divider()
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Dice (5-fold mean)", f"{STUDY_METRICS['Dice']:.3f}")
     c2.metric("Precision", f"{STUDY_METRICS['Precision']:.3f}")

@@ -61,6 +61,55 @@ def render():
     fail = json.load(open(os.path.join(DATA, "failure_criterion.json")))
 
     st.divider()
+    st.subheader("Arm 1 — hard physics: a sign-constrained regression")
+    st.markdown(
+        "Start from the same Paris law as Phase 3, but neglect the threshold "
+        "and integrate it in closed form. With $m>2$ the lower limit ($a_0 = "
+        "\\sqrt{\\text{area}}$, the defect size) dominates:"
+    )
+    st.latex(r"N_f = \frac{a_0^{\,1-m/2}}{(m/2-1)\, C \,\big(Y\Delta\sigma\sqrt{\pi}\big)^{m}}")
+    st.markdown("Taking $\\log_{10}$ makes this **linear** in the logs of the two drivers:")
+    st.latex(r"\log_{10} N_f = b_0 + b_s \ln(\Delta\sigma) + b_a \ln(\sqrt{\text{area}})")
+    st.caption(
+        "Theory fixes the slopes: $b_s = -m/\\ln 10$ (life falls with stress) "
+        "and $b_a = (1-m/2)/\\ln 10$ (life falls with defect size). The "
+        "regression enforces $b_s, b_a \\le 0$ as bounds in the least-squares "
+        "solve itself — not a penalty added to a loss — so a fit where life "
+        "rises with stress or defect size **cannot be represented at all**, "
+        "let alone returned. That's the 'hard' in hard-physics: the constraint "
+        "is structural, not just encouraged."
+    )
+
+    st.divider()
+    st.subheader("Arm 2 — soft physics: a physics-informed neural network (PINN)")
+    st.markdown(
+        "A small network predicts $\\log_{10}N_f$ directly from "
+        "$(\\ln\\Delta\\sigma,\\ \\ln\\sqrt{\\text{area}},\\ \\text{flatness})$, "
+        "trained on a **hybrid loss** — ordinary data error, plus a penalty for "
+        "disagreeing with the physics:"
+    )
+    st.latex(r"\mathcal{L} = \mathcal{L}_{\text{data}} "
+            r"+ \lambda_s\,\mathcal{L}_{\text{stress slope}} "
+            r"+ \lambda_a\,\mathcal{L}_{\text{defect slope}} "
+            r"+ \lambda_m\,\mathcal{L}_{\text{shape sign}}")
+    st.markdown(
+        "The physics terms penalise the network's **own learned gradient** "
+        "(computed by autograd) for deviating from the theoretical slopes "
+        "above — evaluated at points spread across the feature domain, not "
+        "only the 14 measured specimens. That's the direct answer to "
+        "'what does a neural network add when data is limited': the physics "
+        "constrains the model even where no data point sits nearby, which a "
+        "pure data loss cannot do."
+    )
+    st.caption(
+        "This is 'soft' physics because the constraint is a loss term, not a "
+        "structural bound — the network *can* represent a physically "
+        "inconsistent function, it is only discouraged from landing on one. "
+        "See the verification table further down for evidence the penalty "
+        "actually works."
+    )
+
+    st.divider()
     st.subheader("The dataset")
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Specimens tested", comp["n_specimens"])

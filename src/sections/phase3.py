@@ -9,24 +9,40 @@ import streamlit as st
 from src.ui import badge
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-ASSETS = os.path.join(ROOT, "assets")
 PD_DATA = os.path.join(ROOT, "data", "phase2_peridynamics")
 
 
 def render():
-    st.title("Phase 3 · Peridynamic crack growth simulation")
+    st.title("Phase 3 · Fatigue life prediction")
     badge("CALIBRATION DONE", "real")
 
     st.markdown(
-        "Bond-based peridynamics (Silling & Askari 2014 cyclic-damage law) grows "
-        "a crack from the governing defect under each specimen's own ASTM E466 "
-        "loading. The representative-volume-element (RVE) approach: a section "
-        "around the largest predicted defect, loaded at the specimen's own test "
-        "stress, run until the crack propagates far enough to fail the section."
+        "Phase 2 grows a crack; this phase turns that crack path into an actual "
+        "**number of cycles**. The peridynamic damage law (Phase 2) sets the "
+        "crack's shape and direction correctly regardless of the rate "
+        "coefficient $A$ — but $A$ alone sets how many simulated cycles one unit "
+        "of bond damage corresponds to. Get $A$ wrong and the path is still "
+        "right; the cycle count is meaningless. This is where $A$ is calibrated."
     )
 
     d = json.load(open(os.path.join(PD_DATA, "verify_04_results.json")))
     s5, s10 = d["5"], d["10"]
+
+    st.divider()
+    st.subheader("The governing equation, once A is known")
+    st.markdown("Stress intensity factor range at crack depth $a$:")
+    st.latex(r"\Delta K(a) = Y \cdot \Delta\sigma \cdot \sqrt{\pi a}")
+    st.markdown("Paris crack-growth law:")
+    st.latex(r"\frac{da}{dN} = C \cdot \big(\Delta K - \Delta K_{th}\big)^{m}")
+    st.markdown("Cycles to grow the governing defect ($a_0 = \\sqrt{\\text{area}}$, Phase 2) to the collapse depth $a_f$:")
+    st.latex(r"N = \int_{a_0}^{a_f} \frac{da}{C\,\big(\Delta K(a) - \Delta K_{th}\big)^{m}}")
+    st.caption(
+        "This integral has a closed form for $\\Delta K_{th}=0$ (verified "
+        "against Simpson's rule to round-off precision); with the threshold "
+        "retained it's evaluated numerically on a log grid, since the "
+        "integrand is dominated by the lower limit when $m>2$ — almost every "
+        "sample on a linear grid would land where it contributes nothing."
+    )
 
     st.divider()
     st.subheader("Damage-coefficient calibration")
@@ -54,6 +70,14 @@ def render():
         "off, once both corrections are combined."
     )
 
+    st.markdown("**Why calibration needs no extra simulation.** The damage rate is linear in $A$, so one run at $A_{run}$ tells you the rate at any other $A$:")
+    st.latex(r"A_{\text{target}} = A_{\text{run}} \cdot \frac{C_{\text{target}} \cdot \Delta K_{\text{ref}}^{\,\beta}}{(da/dN)_{\text{run at ref}}}")
+    st.caption(
+        "So rescaling the target Paris coefficient from literature 316L to this "
+        "project's own dataset-specific 316H value is a single multiplication of "
+        "the already-calibrated $A$ — not a new simulation."
+    )
+
     with st.expander("Transfer verification (no fitting after the single calibration point)"):
         tf = pd.DataFrame(s10["transfer"])
         fig = go.Figure()
@@ -69,19 +93,8 @@ def render():
                   "A is calibrated against ONE point; the rest are pure predictions.")
 
     st.divider()
-    st.subheader("Crack growth through a measured defect field (P017)")
-    st.caption(
-        "Real measured defect field, 300 MPa at R = 0.1. Cyan = pre-existing "
-        "lack-of-fusion defects. Orange = fatigue damage accumulated since cycle "
-        "zero. Defect POSITIONS are a random realisation — the catalogue "
-        "records size and shape, not coordinates."
-    )
-    gif = os.path.join(ASSETS, "phase2_crack_growth.gif")
-    if os.path.exists(gif):
-        st.image(gif, width='stretch')
-
-    st.divider()
     st.subheader("Per-specimen results")
+    st.caption("See Phase 2 for the crack-growth animation on P017's real measured defect field.")
     spec = pd.read_csv(os.path.join(PD_DATA, "specimen_summary.csv"))
     has_life = "cycles_to_failure" in spec.columns and "is_life" in spec.columns
     n_life = int(spec["is_life"].astype(str).str.lower().eq("true").sum()) if has_life else 0
