@@ -9,6 +9,7 @@ Only two specimens' slices ship in this repo (data/ct_slices/), covering the
 z-range where each one actually has predicted defects -- not the full 436 MB
 held-out folder, which stays in the private working tree.
 """
+import functools
 import glob
 import os
 import re
@@ -33,6 +34,9 @@ _ABS_BG = (20, 22, 26)
 _ABS_METAL = (33, 36, 41)
 _ABS_EDGE = (74, 80, 88)
 
+SPEC_LABELS = {"SN_P017": "P017 — governing defect 1017 µm (largest of the 14)",
+               "SN_P059": "P059 — most defects in gauge (286)"}
+
 _Z_RE = re.compile(r"_z(\d{4})(?:_0000)?\.png$")
 
 
@@ -52,8 +56,10 @@ def list_slices(specimen: str) -> list[int]:
     return zs
 
 
+@functools.lru_cache(maxsize=64)
 def load_ct_slice(specimen: str, z: int) -> np.ndarray | None:
-    """16-bit CT slice, display-windowed to [0, 1] float."""
+    """16-bit CT slice, display-windowed to [0, 1] float. Cached (a page rerun
+    asks for the same slice three times); the returned array is read-only."""
     p = os.path.join(CT_DIR, f"{specimen}_z{z:04d}_0000.png")
     if not os.path.isfile(p):
         return None
@@ -67,14 +73,18 @@ def load_ct_slice(specimen: str, z: int) -> np.ndarray | None:
         lo, hi = 0.0, 1.0
     out = np.clip((a - lo) / max(hi - lo, 1e-9), 0.0, 1.0)
     out[a == 0] = 0.0
+    out.setflags(write=False)
     return out
 
 
+@functools.lru_cache(maxsize=64)
 def load_mask_slice(specimen: str, z: int) -> np.ndarray | None:
     p = os.path.join(MASK_DIR, f"{specimen}_z{z:04d}.png")
     if not os.path.isfile(p):
         return None
-    return np.asarray(Image.open(p)) > 0
+    out = np.asarray(Image.open(p)) > 0
+    out.setflags(write=False)
+    return out
 
 
 def composite_slice(specimen: str, z: int, alpha: float = 0.45) -> np.ndarray | None:

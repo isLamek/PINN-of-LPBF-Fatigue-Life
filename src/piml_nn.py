@@ -62,6 +62,9 @@ trained network has no such guarantee -- but it is the standard PINN validation
 pattern: show the physics term pulls the learned model toward the true physics,
 especially where the pure data fit (lambda = 0) would not.
 """
+import json
+import os
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -70,13 +73,13 @@ M_PARIS = 3.94                                   # fixed, matches piml_model.py 
 B_S_THEORY = -M_PARIS / np.log(10)
 B_A_THEORY = (1.0 - M_PARIS / 2.0) / np.log(10)
 
-torch.manual_seed(20260917)
-
 
 # ============================================================== the network
 class FatigueLifePINN(nn.Module):
     """log10(Nf) = f(ln(ds), ln(sqrt_area), flatness). Deliberately tiny: 3 inputs,
-    one hidden layer of 8 units, ~40 parameters, trained on order-10 specimens."""
+    two hidden layers of 8 units, 113 parameters (3*8+8 + 8*8+8 + 8+1), trained on
+    order-10 specimens -- far more parameters than data, which is exactly why the
+    physics-residual loss and weight decay are there."""
 
     def __init__(self, n_hidden: int = 8):
         super().__init__()
@@ -238,7 +241,12 @@ def verify_recovery_synthetic(n=14, noise_sd=0.25, lambdas=(0.0, 0.01, 0.1, 1.0,
                noise_sd=noise_sd, table=out)
 
 
+VERIFICATION_JSON = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data",
+                                 "comparison_model", "pinn_verification.json")
+
+
 if __name__ == "__main__":
+    import sys
     print("VERIFICATION  PINN recovery of the known Basquin/Paris slope, "
           f"n=14 synthetic specimens (true b_s={B_S_THEORY:+.4f}, b_a={B_A_THEORY:+.4f})")
     r = verify_recovery_synthetic()
@@ -249,4 +257,8 @@ if __name__ == "__main__":
     print("\nExpected pattern: both residual RMS columns fall as lambda increases from 0,")
     print("showing the physics term pulls the learned gradient toward the true slope;")
     print("LOO RMSE should not get materially worse, since 14 points cannot otherwise")
-    print("pin down a ~40-parameter network on their own.")
+    print("pin down a 113-parameter network on their own.")
+    if "--write" in sys.argv:
+        with open(VERIFICATION_JSON, "w") as fh:
+            json.dump(r, fh, indent=2)
+        print(f"\nwrote {os.path.normpath(VERIFICATION_JSON)}")

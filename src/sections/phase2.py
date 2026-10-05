@@ -12,9 +12,6 @@ from src.ui import badge
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA = os.path.join(ROOT, "data", "phase2_extraction")
 
-SPEC_LABELS = {"SN_P017": "P017 — governing defect 1017 µm (largest of the 14)",
-              "SN_P059": "P059 — most defects in gauge (286)"}
-
 
 def _region_grid(rgb, regions, max_labels=6):
     """Static image with size labels on the largest regions, matching the
@@ -82,7 +79,7 @@ def render():
     if not specs:
         st.warning("No CT slice data found in data/ct_slices/.", icon="⚠️")
     else:
-        spec = st.selectbox("Specimen", specs, format_func=lambda s: SPEC_LABELS.get(s, s))
+        spec = st.selectbox("Specimen", specs, format_func=lambda s: cv.SPEC_LABELS.get(s, s))
         zs = cv.list_slices(spec)
         z_idx = st.slider("z slice", 0, len(zs) - 1, len(zs) // 2,
                           format=f"slice %d of {len(zs)}")

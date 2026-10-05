@@ -6,7 +6,7 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.data import load, splits, SY_MPA, UTS_MPA
+from src.data import load, splits, SY_MPA, UTS_MPA, R_RATIO
 from src.life_integral import life_numeric, Y_SURFACE, DKTH, C_PARIS, M_PARIS
 from src.piml_nn import train_pinn, predict as pinn_predict
 from src.ui import badge
@@ -206,16 +206,26 @@ def render():
             "physics-loss weight λ rises from 0 the network's *learned gradient* "
             "should move toward the true slope."
         )
-        st.markdown(
-            "| λ | stress-slope residual RMS | defect-slope residual RMS | LOO RMSE (decades) |\n"
-            "|---:|---:|---:|---:|\n"
-            "| 0.00 | 0.9596 | 0.3632 | 0.543 |\n"
-            "| 0.01 | 0.2288 | 0.3495 | 0.493 |\n"
-            "| 0.10 | 0.0372 | 0.1111 | 0.592 |\n"
-            "| 1.00 | 0.0107 | 0.0145 | 0.683 |\n"
-            "| 10.00 | 0.0063 | 0.0069 | 0.459 |"
-        )
-        st.caption("λ = 10 was chosen from this table before the real fit was ever run.")
+        pv_path = os.path.join(DATA, "pinn_verification.json")
+        if os.path.exists(pv_path):
+            with open(pv_path) as fh:
+                pv = json.load(fh)
+            pvt = pd.DataFrame(pv["table"]).rename(columns={
+                "lam": "λ", "b_s_resid_rms": "stress-slope residual RMS",
+                "b_a_resid_rms": "defect-slope residual RMS", "loo_rmse": "LOO RMSE (decades)"})
+            st.dataframe(pvt.style.format({"λ": "{:g}", "stress-slope residual RMS": "{:.4f}",
+                                           "defect-slope residual RMS": "{:.4f}",
+                                           "LOO RMSE (decades)": "{:.3f}"}),
+                         width='stretch', hide_index=True)
+            st.caption(
+                f"Read from `pinn_verification.json` (n = {pv['n']}, scatter "
+                f"{pv['noise_sd']} decades; regenerate with `python -m src.piml_nn "
+                "--write`). Last digits vary slightly across PyTorch builds. "
+                "λ = 10 was chosen from this table before the real fit was ever run."
+            )
+        else:
+            st.info("Run `python -m src.piml_nn --write` to generate the PINN "
+                    "verification table.", icon="ℹ️")
 
     # ------------------------------------------------------------ fig3 (live)
     st.subheader("Failure criterion: what ends the part")
@@ -262,7 +272,7 @@ def render():
         sa_slider = st.slider("Governing defect √area (µm)", 150, 1200, 450, 10)
 
     a0_mm = sa_slider * 1e-3
-    smax_slider = ds_slider / (1 - 0.1)
+    smax_slider = ds_slider / (1 - R_RATIO)
     af_mm = collapse_depth_mm(smax_slider)
     n_phys = life_numeric(a0_mm, af_mm, ds_slider, dkth=DKTH, Y=Y_SURFACE, C=C_PARIS, m=M_PARIS)
     n_phys_cal = life_numeric(a0_mm, af_mm, ds_slider, dkth=DKTH, Y=Y_SURFACE,

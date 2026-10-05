@@ -7,8 +7,6 @@ from src.ui import badge
 
 ACCENT = "#B5473A"
 GREY = "#8A9096"
-SPEC_LABELS = {"SN_P017": "P017 — governing defect 1017 µm (largest of the 14)",
-              "SN_P059": "P059 — most defects in gauge (286)"}
 
 
 def render():
@@ -30,7 +28,7 @@ def render():
     if not specs:
         st.warning("No CT slice data found in data/ct_slices/.", icon="⚠️")
     else:
-        spec = st.selectbox("Specimen", specs, format_func=lambda s: SPEC_LABELS.get(s, s),
+        spec = st.selectbox("Specimen", specs, format_func=lambda s: cv.SPEC_LABELS.get(s, s),
                             key="p1_spec")
         zs = cv.list_slices(spec)
         z_idx = st.slider("z slice", 0, len(zs) - 1, len(zs) // 2,

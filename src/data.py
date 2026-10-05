@@ -7,6 +7,7 @@ The merge logic, the hand-curated gauge-cropped defect sizes (`gauge_sa`,
 here, so this stays consistent with the verified pipeline in Research files/.
 """
 import csv
+import functools
 import json
 import os
 
@@ -19,6 +20,7 @@ E_GPA, UTS_MPA, SY_MPA = 195.0, 642.0, 484.0     # Merot et al. 2022, EFM 276 10
 C_PARIS, M_PARIS       = 6.25e-10, 3.94          # mm/cycle, literature (316L)
 DKTH_MPA_SQRTM         = 5.0
 Y_SURFACE, Y_INTERNAL  = 0.65, 0.50
+R_RATIO                = 0.1                     # ORNL Snow load ratio, smin / smax
 RUNOUT_CYCLES          = 10_000_000
 
 # largest sqrt(area) inside the 3-D machined gauge, from the Phase 1 defect maps
@@ -36,20 +38,27 @@ FOLD_DICE = [0.8043, 0.7936, 0.7956, 0.8254, 0.8078]
 HELDOUT_SIZE_R2 = 0.986
 
 
+def _read_csv(*parts):
+    with open(os.path.join(DATA, *parts), newline="") as fh:
+        return list(csv.DictReader(fh))
+
+
+@functools.lru_cache(maxsize=1)
 def load():
-    fat = {("P%03d" % int(d["specimen"][1:])): d
-           for d in json.load(open(os.path.join(DATA, "comparison_model", "fatigue_record.json")))}
-    twin = {r["id"]: r for r in csv.DictReader(open(os.path.join(DATA, "twin_summary.csv")))}
-    spl = {r["part_id"]: r for r in csv.DictReader(
-        open(os.path.join(DATA, "00_docs", "Appendix_A_train_test_split.csv")))}
-    sec = {r["specimen"].replace("SN_", ""): r for r in csv.DictReader(
-        open(os.path.join(DATA, "phase2_peridynamics", "specimen_summary.csv")))}
+    """Merged per-specimen records. Cached: the inputs are static files, and the
+    pages call this on every widget interaction. Treat the result as read-only."""
+    with open(os.path.join(DATA, "comparison_model", "fatigue_record.json")) as fh:
+        fat = {("P%03d" % int(d["specimen"][1:])): d for d in json.load(fh)}
+    twin = {r["id"]: r for r in _read_csv("twin_summary.csv")}
+    spl = {r["part_id"]: r for r in _read_csv("00_docs", "Appendix_A_train_test_split.csv")}
+    sec = {r["specimen"].replace("SN_", ""): r
+           for r in _read_csv("phase2_peridynamics", "specimen_summary.csv")}
 
     shape = {}
     cat = os.path.join(DATA, "phase2_extraction", "phase2_defect_catalogue.csv")
     if os.path.exists(cat):
         acc = {}
-        for d in csv.DictReader(open(cat)):
+        for d in _read_csv("phase2_extraction", "phase2_defect_catalogue.csv"):
             acc.setdefault(d["cylinder"], []).append(float(d["flatness"]))
         shape = {k: float(np.median(v)) for k, v in acc.items()}
 
