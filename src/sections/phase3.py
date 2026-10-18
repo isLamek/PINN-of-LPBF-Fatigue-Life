@@ -11,26 +11,37 @@ from src.ui import badge
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PD_DATA = os.path.join(ROOT, "data", "phase2_peridynamics")
 MCB_DATA = os.path.join(ROOT, "data", "phase_mc_bayesian")
+CMP_DATA = os.path.join(ROOT, "data", "comparison_model")
+P4_DATA = os.path.join(ROOT, "data", "phase4_validation")
 
 
 def render():
     st.title("Phase 3 · Fatigue life prediction")
-    badge("CALIBRATION DONE", "real")
+    badge("LEAVE-ONE-OUT VALIDATED", "real")
 
     st.markdown(
-        "Phase 2 grows a crack; this phase turns that crack path into an actual "
-        "**number of cycles**. The peridynamic damage law (Phase 2) sets the "
-        "crack's shape and direction correctly regardless of the rate "
-        "coefficient $A$ — but $A$ alone sets how many simulated cycles one unit "
-        "of bond damage corresponds to. Get $A$ wrong and the path is still "
-        "right; the cycle count is meaningless. This is where $A$ is calibrated."
+        "Fatigue life is obtained by integrating the crack-growth law from the "
+        "governing defect to net-section collapse, driven by the defect size that "
+        "Phase 1 segmented out of this specimen's own CT scan. The Paris exponent "
+        "is the measured material value and is not fitted, which leaves **one** "
+        "free constant in the whole life model."
+    )
+    st.info(
+        "**Phase 2 does not feed this number.** Peridynamics answers where the crack "
+        "starts and what path it takes — that is its result, and it is robust because "
+        "the order in which bonds break does not depend on the damage coefficient at "
+        "all. Its *cycle counts* are not lives: the coefficient behind them was "
+        "calibrated on soda-lime glass (E = 72 GPa) and applied to 316H (E = 195 GPa), "
+        "a 50.7× error measured directly, then transferred across a 12.5× mesh change "
+        "and an 8–65× crack-size change in a model that provably cannot satisfy "
+        "ΔK-similitude. Redoing that calibration *correctly* moved the prediction "
+        "further from the fatigue record, which is what shows the limit belongs to the "
+        "method rather than the tuning. See Phase 2 for the full record.",
+        icon="ℹ️",
     )
 
-    d = json.load(open(os.path.join(PD_DATA, "verify_04_results.json")))
-    s5, s10 = d["5"], d["10"]
-
     st.divider()
-    st.subheader("The governing equation, once A is known")
+    st.subheader("The governing equation")
     st.markdown("Stress intensity factor range at crack depth $a$:")
     st.latex(r"\Delta K(a) = Y \cdot \Delta\sigma \cdot \sqrt{\pi a}")
     st.markdown("Paris crack-growth law:")
@@ -46,104 +57,91 @@ def render():
     )
 
     st.divider()
-    st.subheader("Damage-coefficient calibration")
-    st.caption(
-        "The damage rate coefficient **A** sets how many simulated cycles "
-        "correspond to one unit of bond damage — get it wrong and the crack "
-        "path is still right, but the cycle count is meaningless."
-    )
+    st.subheader("What one fitted constant buys")
+    cmp_path = os.path.join(CMP_DATA, "comparison_results.json")
+    cmp_d = json.load(open(cmp_path)) if os.path.exists(cmp_path) else {}
+    p4m = cmp_d.get("phase4", {})
+
+    def _fac(key):
+        v = p4m.get(key)
+        return v.get("factor") if isinstance(v, dict) else None
+
+    def _bias(key):
+        v = p4m.get(key)
+        return v.get("bias") if isinstance(v, dict) else None
+
     c1, c2, c3 = st.columns(3)
-    c1.metric("A, uncalibrated demo value", "5.00e6",
-             help="Used only for early presentation animations.")
-    c2.metric("A, calibrated vs. literature C (316L)", f"{s5['A_calibrated']:.3e}",
-             help="Against Merot et al. 2022's 316L Paris coefficient.")
-    c3.metric("A, calibrated vs. dataset C (316H)", f"{s10['A_calibrated_dataset']:.3e}",
-             help="Against this project's own 316H-specific Paris coefficient (Phase 4).")
+    if _fac("log10_N_pred") is not None:
+        c1.metric("Nothing fitted (a priori)", f"{_fac('log10_N_pred'):.1f}×",
+                  help="The same physics with literature constants, 0 free parameters.")
+    if _fac("log10_N_pathA") is not None:
+        c2.metric("One constant · path A", f"{_fac('log10_N_pathA'):.2f}×",
+                  delta=f"bias {_bias('log10_N_pathA'):+.2f} decades", delta_color="off",
+                  help="Leave-one-out over the 14 held-out cylinders.")
+    if _fac("log10_N_pathB") is not None:
+        c3.metric("One constant · path B", f"{_fac('log10_N_pathB'):.2f}×",
+                  delta=f"bias {_bias('log10_N_pathB'):+.2f} decades", delta_color="off",
+                  help="The alternative geometry path, same single constant idea.")
 
-    st.markdown(
-        f"The literature Paris coefficient (316L, C = {s10['C_316L']:.3g} "
-        f"mm/cycle) under-predicts growth on the *actual* 316H Snow specimens by "
-        f"a geometric mean of **{s10['ratio']:.1f}×** (Phase 4's physics-only "
-        f"baseline, 13 held-out specimens). Correcting for that and rescaling A "
-        f"by the same ratio — exact, no new simulation, since the damage rate "
-        f"is linear in A — gives the calibrated value above. Net effect: the "
-        f"original demo value was only **{s10['demo_over_calibrated']:.2f}×** "
-        "off, once both corrections are combined."
-    )
-
-    st.markdown("**Why calibration needs no extra simulation.** The damage rate is linear in $A$, so one run at $A_{run}$ tells you the rate at any other $A$:")
-    st.latex(r"A_{\text{target}} = A_{\text{run}} \cdot \frac{C_{\text{target}} \cdot \Delta K_{\text{ref}}^{\,\beta}}{(da/dN)_{\text{run at ref}}}")
-    st.caption(
-        "So rescaling the target Paris coefficient from literature 316L to this "
-        "project's own dataset-specific 316H value is a single multiplication of "
-        "the already-calibrated $A$ — not a new simulation."
-    )
-
-    with st.expander("Transfer verification (no fitting after the single calibration point)"):
-        tf = pd.DataFrame(s10["transfer"])
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=tf["dK"], y=tf["predicted"], mode="lines+markers",
-                                 name="Paris law prediction"))
-        fig.add_trace(go.Scatter(x=tf["dK"], y=tf["model"], mode="markers",
-                                 name="Peridynamic model", marker=dict(size=10, symbol="x")))
-        fig.update_layout(xaxis_title="ΔK (MPa√m)", yaxis_title="da/dN (mm/cycle)",
-                          yaxis_type="log", height=400, legend=dict(orientation="h", y=1.1))
-        st.plotly_chart(fig, width='stretch')
-        errs = [t["err_pct"] for t in s10["transfer"] if t["dK"] != tf["dK"].iloc[0]]
-        st.caption(f"Mean error on the non-calibration points: {np.mean(errs):.1f}%. "
-                  "A is calibrated against ONE point; the rest are pure predictions.")
+    ladder = cmp_d.get("ladder", [])
+    best = None
+    for row in ladder:
+        if str(row.get("model", "")).startswith("B") and row.get("loo_factor"):
+            if best is None or row["loo_factor"] < best["loo_factor"]:
+                best = row
+    if best:
+        st.markdown(
+            f"For contrast, the best purely **statistical** model in the ladder "
+            f"(*{best['model'].strip()}*) needs **{best['params']} free parameters** to "
+            f"reach **{best['loo_factor']:.2f}×**. The physics model gets there with one, "
+            "because the defect size is measured rather than fitted."
+        )
 
     st.divider()
-    st.subheader("Per-specimen results")
-    st.caption("See Phase 2 for the crack-growth animation on P017's real measured defect field.")
-    spec = pd.read_csv(os.path.join(PD_DATA, "specimen_summary.csv"))
-    has_life = "cycles_to_failure" in spec.columns and "is_life" in spec.columns
-    n_life = int(spec["is_life"].astype(str).str.lower().eq("true").sum()) if has_life else 0
-
-    if has_life and n_life > 0:
-        badge("FATIGUE LIFE RESULTS", "real")
-        live = spec[spec["is_life"].astype(str).str.lower() == "true"].copy()
-        live["cycles_to_failure"] = pd.to_numeric(live["cycles_to_failure"])
-        live["Nf_measured"] = pd.to_numeric(live["Nf_measured"])
+    st.subheader("Per-specimen predicted life · leave-one-out")
+    st.caption(
+        "Each specimen is predicted by a model that never saw it. Source: "
+        "`phase4_validation/phase4_error_isolation.csv`, path A."
+    )
+    p4_csv = os.path.join(P4_DATA, "phase4_error_isolation.csv")
+    if os.path.exists(p4_csv):
+        p4 = pd.read_csv(p4_csv)
+        p4 = p4[np.isfinite(pd.to_numeric(p4["log10_N_pathA"], errors="coerce"))].copy()
+        p4["predicted"] = 10 ** pd.to_numeric(p4["log10_N_pathA"])
+        p4["measured"] = 10 ** pd.to_numeric(p4["measured_log10_cycles"])
+        p4["ratio"] = p4["predicted"] / p4["measured"]
+        lims = [min(p4["measured"].min(), p4["predicted"].min()) / 2,
+                max(p4["measured"].max(), p4["predicted"].max()) * 2]
         fig = go.Figure()
-        lims = [live[["cycles_to_failure", "Nf_measured"]].min().min() / 2,
-               live[["cycles_to_failure", "Nf_measured"]].max().max() * 2]
         fig.add_trace(go.Scatter(x=lims, y=lims, mode="lines",
                                  line=dict(dash="dash", color="#8A9096"), name="1:1"))
-        fig.add_trace(go.Scatter(x=live["Nf_measured"], y=live["cycles_to_failure"],
-                                 mode="markers+text", text=live["specimen"],
-                                 textposition="top center", marker=dict(size=10, color="#B5473A"),
-                                 name="peridynamic prediction"))
+        for f in (2.0,):
+            fig.add_trace(go.Scatter(x=lims, y=[v * f for v in lims], mode="lines",
+                                     line=dict(dash="dot", color="#C8CDD2"),
+                                     name=f"±{f:.0f}× band"))
+            fig.add_trace(go.Scatter(x=lims, y=[v / f for v in lims], mode="lines",
+                                     line=dict(dash="dot", color="#C8CDD2"),
+                                     showlegend=False))
+        fig.add_trace(go.Scatter(x=p4["measured"], y=p4["predicted"],
+                                 mode="markers+text", text=p4["cylinder"],
+                                 textposition="top center",
+                                 marker=dict(size=10, color="#B5473A"),
+                                 name="path A prediction"))
         fig.update_layout(xaxis_type="log", yaxis_type="log",
                           xaxis_title="measured cycles to failure",
-                          yaxis_title="peridynamic-predicted cycles to failure",
-                          height=460)
+                          yaxis_title="predicted cycles to failure", height=460)
         st.plotly_chart(fig, width='stretch')
-        resid = np.log10(live["cycles_to_failure"]) - np.log10(live["Nf_measured"])
-        st.metric("Typical life error (this arm)", f"{10**np.sqrt((resid**2).mean()):.2f}×",
-                  help=f"RMSE in decades over {len(live)} specimens that reached the "
-                       "stiffness failure criterion, not the event budget.")
+        resid = np.log10(p4["predicted"]) - np.log10(p4["measured"])
+        st.metric("Leave-one-out scatter", f"{10 ** np.sqrt((resid ** 2).mean()):.2f}×",
+                  help=f"RMSE in decades over {len(p4)} held-out cylinders.")
+        st.dataframe(
+            p4[["cylinder", "stress_level_MPa", "measured", "predicted", "ratio"]]
+            .rename(columns={"cylinder": "specimen", "stress_level_MPa": "σmax (MPa)"})
+            .style.format({"measured": "{:,.0f}", "predicted": "{:,.0f}",
+                           "ratio": "{:.2f}×"}),
+            width='stretch', hide_index=True)
     else:
-        badge("TO-FAILURE RE-RUN PENDING", "pending")
-
-    st.dataframe(spec, width='stretch', hide_index=True)
-
-    if has_life and 0 < n_life < len(spec):
-        st.warning(
-            f"{n_life} of {len(spec)} specimens reached the stiffness failure "
-            "criterion; the rest are still mid-run (stopped by the event budget) "
-            "— re-run with a larger --events budget to complete them.",
-            icon="\U0001F6A7",
-        )
-    elif not has_life:
-        st.error(
-            "Every run on file stopped at a fixed event budget, not the 90% "
-            "stiffness-loss failure criterion, and used the OLD uncalibrated "
-            "A = 5.0e6. **None of these numbers is a fatigue-life prediction.** "
-            "Re-run `scripts/run_all_specimens.py --redo` under the calibrated A "
-            "to get real predicted lives.",
-            icon="\U0001F6A7",
-        )
+        badge("PHASE 4 VALIDATION NOT FOUND", "pending")
 
     _render_monte_carlo()
     _render_bayesian()
@@ -226,24 +224,75 @@ def _render_monte_carlo():
 
     st.subheader("Probabilistic S-N at the real test stresses")
     cols = st.columns(2)
+    censor_pct = {}
     for col, smax in zip(cols, (300.0, 450.0)):
         sn = mc["sn"][str(int(smax))]
+        # Stated percentage always comes from n_at_runout/n_finite -- counted
+        # once on the full 20000-draw run and stored in the JSON -- never
+        # re-derived from N_samples below, which the app's own data file
+        # ships downsampled to 3000 points to keep the repo small. Re-deriving
+        # from that trimmed array would quietly drift from the number the
+        # desktop app shows for the exact same run.
+        pct = 100 * sn["n_at_runout"] / sn["n_finite"]
+        censor_pct[smax] = pct
         with col:
             st.markdown(f"**{smax:.0f} MPa**")
-            fig = go.Figure(go.Histogram(x=np.log10(sn["N_samples"]), nbinsx=40,
-                                         marker_color="#B5473A"))
+            logN = np.log10(sn["N_samples"])
+            fig = go.Figure(go.Histogram(x=logN, nbinsx=40, marker_color="#B5473A"))
             for p, label in ((sn["log10_p5"], "p5"), (sn["log10_p50"], "median"),
                             (sn["log10_p95"], "p95")):
                 fig.add_vline(x=p, line_dash="dash", line_color="#5A6067",
                              annotation_text=label)
+            if pct > 2:
+                fig.add_annotation(
+                    x=7.0, y=1.0, yref="paper", yanchor="top",
+                    text=f"{pct:.0f}% right-censored<br>at 10⁷-cycle run-out",
+                    showarrow=True, ax=-60, ay=20,
+                    font=dict(size=11, color="#5A6067"),
+                    bgcolor="rgba(255,255,255,0.85)")
             fig.update_layout(xaxis_title="log₁₀(cycles to failure)",
                              yaxis_title="Monte Carlo draws", height=320,
                              margin=dict(t=10))
             st.plotly_chart(fig, width='stretch')
+            p95_text = (f"≥{10**sn['log10_p95']:,.0f} (right-censored)"
+                       if sn["log10_p95"] >= 6.999 else f"{10**sn['log10_p95']:,.0f}")
             st.caption(f"p5 / median / p95: {10**sn['log10_p5']:,.0f} / "
-                      f"{10**sn['log10_p50']:,.0f} / {10**sn['log10_p95']:,.0f} cycles "
-                      f"({sn['n_finite']}/20000 admissible draws, capped at the real "
-                      "10⁷ ORNL run-out limit)")
+                      f"{10**sn['log10_p50']:,.0f} / {p95_text} cycles "
+                      f"({sn['n_finite']}/{sn['n_total']} admissible draws, "
+                      f"{pct:.1f}% capped at the real 10⁷ ORNL run-out limit)")
+
+    st.markdown(
+        f"**What the run-out spike means.** At 300 MPa, **{censor_pct[300.0]:.0f}%** "
+        "of the simulated population is predicted to survive beyond the ORNL "
+        "test's 10⁷-cycle run-out limit — not a rendering artefact, and not "
+        "the model breaking down. It's right-censoring: 300 MPa sits close "
+        "enough to this material's threshold-controlled regime (set by "
+        "$\\Delta K_{th}$ in the calibrated Paris law) that a large share of "
+        "specimens governed by smaller defects never accumulate enough "
+        "driving force to fail inside a practical test duration, so the "
+        "life integral is capped at the real run-out limit exactly as ORNL's "
+        f"own suspended tests were. At 450 MPa the same mechanism is "
+        f"negligible (**{censor_pct[450.0]:.1f}%** censored): life there is "
+        "governed by finite crack growth to a measurable failure, not "
+        "threshold arrest. This qualitative shift — a fatigue-limit-like "
+        "pile-up at low stress, a smooth failure-dominated tail at high "
+        "stress — is exactly what real S-N curves show near the endurance "
+        "limit, and it falls out of the calibrated physics rather than "
+        "being imposed on the model."
+    )
+    st.markdown(
+        "**Why it matters for this thesis.** A single point-estimate life "
+        "cannot express this. The distribution answers a different, more "
+        "useful question at each stress: not *when does it fail*, but "
+        "*what fraction fail by a given life*. At 300 MPa, treating a "
+        "predicted life as a single number would already be the wrong "
+        "framing for over a third of the population — the right statement "
+        "is a survival probability. That distinction is exactly what a "
+        "reliability-based design or inspection-interval decision needs, "
+        "and it is a genuine physical check on the model: it recovers "
+        "near-threshold, fatigue-limit-like behaviour without that "
+        "behaviour being hand-coded anywhere."
+    )
 
 
 # ============================================================== Bayesian filter

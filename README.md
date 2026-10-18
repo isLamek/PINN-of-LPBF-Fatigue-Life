@@ -16,7 +16,7 @@ illustrative placeholder.
 A single-page app with a top pipeline bar (Phase 1-4, styled after the project's
 own desktop demo tool), not a sidebar. Every chart is a live Plotly graph built
 from the underlying data at render time — nothing is a pre-rendered PNG. The one
-exception is the crack-growth GIF (Phase 3), which is real simulation footage,
+exception is the crack-growth GIF (Phase 2), which is real simulation footage,
 not a statistical chart, so there is nothing to "graph" instead.
 
 Phase numbering matches the thesis report exactly (not the exploratory "Monte
@@ -26,8 +26,26 @@ Carlo" phase that appeared in an earlier, superseded version of the demo app):
 |---|---|
 | 1 · Segmentation | Real — nnU-Net v2, 5-fold cross-validated |
 | 2 · Defect extraction | Real — 1342-defect catalogue, AOP24 cross-check, and a live raw CT / segmentation overlay / extracted-region viewer on real CT slices |
-| 3 · Peridynamic crack growth | Real — damage-coefficient A calibrated against the dataset-specific Paris coefficient; per-specimen fatigue-life results appear automatically once `run_all_specimens.py --redo` finishes |
+| 3 · Fatigue life prediction | Real — threshold-corrected Paris integral driven by each specimen's own segmented defect size (one fitted constant), Monte Carlo uncertainty propagation and a Bayesian particle filter. Leave-one-out validated at **1.36×** |
 | 4 · Validation & PIML | Real — closed-loop validation, statistical ladder, sign-constrained physics regression, and a new physics-informed neural network (PINN) |
+
+### Which arm produces the fatigue life
+
+The defect catalogue feeds two independent arms and only one ends in a life. The
+**geometry arm** takes the governing defect size into the Paris integral — that is the
+life, validated leave-one-out at 1.36× against the ORNL fatigue record with a single
+fitted constant, where the best fitted statistical model in the ladder needs four free
+parameters to reach 1.43×. The **mechanics arm** is peridynamics, which establishes the
+crack initiation site and path and is robust to the calibration, because
+the order in which bonds break is independent of the damage coefficient.
+
+Peridynamic cycle counts are **not** fatigue lives and the app does not present them as
+such. The coefficient behind them was calibrated on soda-lime glass (E = 72 GPa) and
+applied to 316H (E = 195 GPa) — 50.7× measured directly — then transferred across a 12.5×
+mesh change and an 8–65× crack-size change in a model whose effective Paris exponent under
+geometric self-similarity is exactly 2 whatever β is set to. Redoing that calibration
+correctly moved the prediction further from the record, not closer, which is what makes
+the limit a property of the method rather than of the tuning.
 
 ## The two PIML arms (Phase 4)
 

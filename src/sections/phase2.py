@@ -161,17 +161,37 @@ def render():
         "a crack is not a special boundary condition, it is bonds going to zero."
     )
     st.markdown("Each bond carries a remaining life $\\lambda$, starting at 1, that falls under cyclic load:")
-    st.latex(r"\frac{d\lambda_i}{dN} = -A \cdot \varepsilon_i^{\,\beta} \quad (\varepsilon_i > \varepsilon_{th}), "
+    st.latex(r"\frac{d\lambda_i}{dN} = -A \cdot (\varepsilon_i - \varepsilon_{th})^{\,\beta} "
+            r"\quad (\varepsilon_i > \varepsilon_{th}), "
             r"\qquad \text{bond } i \text{ breaks when } \lambda_i \le 0")
     st.caption(
         "$\\varepsilon_i$ is bond $i$'s cyclic strain range, $A$ a rate "
-        "coefficient, $\\beta$ a rate exponent. Near a crack tip the bond strain "
-        "scales with the stress intensity factor ($\\varepsilon \\sim K$), so the "
-        "crack advances at $da/dN \\sim (\\Delta K)^{\\beta}$ — the Paris law, with "
-        "exponent $\\beta$. $\\beta$ is therefore **set** to the measured Paris "
-        "exponent (3.94) and is not fitted; only the rate coefficient $A$ is "
-        "calibrated — see Phase 3."
+        "coefficient, $\\beta$ a rate exponent set to the measured Paris exponent "
+        "(3.94), $\\varepsilon_{th}$ the strain form of the fatigue threshold."
     )
+    st.info(
+        "**What this phase delivers — and what it does not.** It delivers the crack "
+        "**initiation site** (which of the several defects in a section governs) and "
+        "the **path** the crack then follows. That is what hypothesis H2 is tested on, "
+        "and the test is robust to the calibration: the cycle step goes as $1/A$ and the "
+        "damage increment cancels it, so the order in which bonds break is *independent "
+        "of the calibration constant entirely*.\n\n"
+        "It does **not** deliver fatigue life. Verification established four independent "
+        "defects in the chain that would have to hold for it to: the coefficient was "
+        "calibrated on soda-lime glass (E = 72 GPa) and applied to 316H (E = 195 GPa), "
+        "a 50.7× error measured directly; it was transferred across a 12.5× mesh change "
+        "and an 8–65× crack-size change in a model whose effective Paris exponent under "
+        "geometric self-similarity is provably **exactly 2**, whatever $\\beta$ is set "
+        "to; the damage law carried no threshold while its target Paris coefficient "
+        "does; and a cycle-accounting defect (since fixed) made the recorded counts "
+        "artefacts. Redoing the calibration correctly moved the prediction *further* "
+        "from the fatigue record — which is what establishes the limit as belonging to "
+        "the method at feasible mesh resolution, not to the tuning. "
+        "**Fatigue life comes from Phase 3**, leave-one-out validated at 1.36×.",
+        icon="ℹ️",
+    )
+
+    _render_h2()
 
     st.markdown(
         "**Real measured defect field, P017, 300 MPa at R = 0.1.** Cyan = "
@@ -184,8 +204,88 @@ def render():
     if os.path.exists(gif):
         st.image(gif, width='stretch')
     st.warning(
-        "This animation's cycle count predates the Phase 3 damage-coefficient "
-        "calibration — it shows the crack **path**, which does not depend on A, "
-        "not a life. Phase 3 has the calibrated numbers.",
+        "The cycle count on this animation paces the playback; it is **not** a fatigue "
+        "life and should not be read as one. What the animation shows — where the crack "
+        "starts and the path it takes — does not depend on the damage coefficient and "
+        "is the result being demonstrated. Fatigue life is in Phase 3.",
         icon="⚠️",
+    )
+
+
+# ============================================================== hypothesis H2
+def _render_h2():
+    """The H2 result, read from the pipeline output rather than typed in here.
+
+    Source: data/phase2_peridynamics/h2_initiation_measured.json, written by
+    scripts/h2_initiation_measured.py in the Research files tree. If the file is
+    absent the section says so instead of showing a placeholder.
+    """
+    import json
+
+    path = os.path.join(ROOT, "data", "phase2_peridynamics",
+                        "h2_initiation_measured.json")
+    st.divider()
+    st.subheader("Hypothesis H2 — does the crack start at the most severe defect?")
+    if not os.path.exists(path):
+        badge("H2 NOT YET RUN", "pending")
+        st.caption(
+            "`data/phase2_peridynamics/h2_initiation_measured.json` is not present. "
+            "Run `scripts/h2_initiation_measured.py` in the Research files tree."
+        )
+        return
+
+    with open(path, encoding="utf-8") as fh:
+        d = json.load(fh)
+    n = d["n_ok"]
+    crit = d["criterion"]
+    f_area, f_sev = d["fraction_by_area"], d["fraction_by_severity"]
+    met = d["met_by_area"] or d["met_by_severity"]
+
+    badge("NOT SUPPORTED" if not met else "SUPPORTED", "real")
+    st.markdown(
+        f"H2 states that a crack model seeded with the measured defect geometry "
+        f"initiates at the most severe defect in at least **{crit:.0%}** of "
+        f"realisations. Tested here on the **{n} measured sections** completed under "
+        f"the current calibration — real defect sizes *and* real positions, not a "
+        f"randomised arrangement."
+    )
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Severity = largest √area", f"{f_area:.1%}",
+              delta=f"{d['hits_by_area']} of {n}", delta_color="off",
+              help="Severity as H2 is worded.")
+    c2.metric("Severity = Murakami ΔK", f"{f_sev:.1%}",
+              delta=f"{d['hits_by_severity']} of {n}", delta_color="off",
+              help=f"√area weighted by the geometry factor: {d['Y_surface']} for a "
+                   f"surface-connected defect, {d['Y_internal']} for an enclosed one.")
+    c3.metric("Criterion", f"{crit:.0%}",
+              delta="not met" if not met else "met", delta_color="off")
+
+    rows = [r for r in d["rows"] if r.get("status") == "ok"]
+    if rows:
+        df = pd.DataFrame([{
+            "specimen": r["specimen"],
+            "σmax (MPa)": r["sigma_max_MPa"],
+            "defects": r["n_defects"],
+            "initiated at (µm)": r["initiation_defect_sqrt_area_um"],
+            "surface?": "yes" if r["initiation_defect_is_surface"] else "no",
+            "rank by area": r["initiation_defect_size_rank"],
+            "rank by severity": r["initiation_defect_severity_rank"],
+            "at most severe?": "yes" if r["initiated_at_most_severe"] else "no",
+        } for r in rows])
+        st.dataframe(df, width='stretch', hide_index=True)
+
+    n_surf = d["n_initiated_at_surface_defect"]
+    st.warning(
+        f"**Reported as found.** Size alone does not predict where the crack starts. "
+        f"{n_surf} of {n} sections initiated at a **surface-connected** defect, which "
+        f"Murakami's geometry factors make "
+        f"{(d['Y_surface'] / d['Y_internal']) ** 2:.2f}× as severe per unit area as an "
+        f"enclosed one — enough for a small surface flaw to beat a much larger buried "
+        f"one. In SN_P017 a 268 µm surface defect initiated ahead of the 947 µm "
+        f"enclosed defect that dominates that section by size. Two earlier studies "
+        f"agree in direction (69% for the slit realisations, 25% for randomly "
+        f"positioned ones), so this is a finding about the **severity criterion**, not "
+        f"about the segmentation that measures the defects or the life model that "
+        f"consumes their size — neither of which depends on which defect cracks first.",
+        icon="🔍",
     )
