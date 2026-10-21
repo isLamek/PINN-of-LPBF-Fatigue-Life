@@ -84,6 +84,22 @@ streamlit run app.py
    apps are visible to anyone with the link, so treat it like a public preprint,
    not a private document.
 
+## The static edition (GitHub Pages)
+
+`site/` is the same content as plain HTML, so it opens instantly instead of waiting for
+a Streamlit server to wake. `site_build/build.py` writes every page from the files in
+`data/` with the same Plotly code as the Streamlit pages; the browser only draws,
+animates and, on the validation page, evaluates path A, B3 and the trained network
+(their browser values are checked against Python's at build time). Rebuild after any
+change to `data/`:
+
+```
+.venv/Scripts/python.exe site_build/build.py
+```
+
+Pushing a change under `site/` publishes it through `.github/workflows/pages.yml`.
+The Streamlit app is unaffected and stays deployed.
+
 ## Data included in this repo
 
 Small derived artefacts (catalogues, verification JSON, the crack-growth GIF)
