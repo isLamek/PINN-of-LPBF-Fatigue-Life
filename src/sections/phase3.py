@@ -4,9 +4,10 @@ import os
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 import streamlit as st
 
-from src.ui import badge
+from src.ui import ACCENT, GREEN, GREY, NAVY, badge, plain, play, thinking
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PD_DATA = os.path.join(ROOT, "data", "phase2_peridynamics")
@@ -14,134 +15,223 @@ MCB_DATA = os.path.join(ROOT, "data", "phase_mc_bayesian")
 CMP_DATA = os.path.join(ROOT, "data", "comparison_model")
 P4_DATA = os.path.join(ROOT, "data", "phase4_validation")
 
+# Path A's constants, as scripts/phase4_predict.py uses them for the validated result:
+# literature values for 316L, Murakami's surface factor, threshold removed.
+M_PARIS, Y_SURF, R_RATIO = 3.94, 0.65, 0.1
+
+
+def _p4():
+    p = os.path.join(P4_DATA, "phase4_error_isolation.csv")
+    if not os.path.exists(p):
+        return None
+    d = pd.read_csv(p)
+    d = d[np.isfinite(pd.to_numeric(d["log10_N_pathA"], errors="coerce"))].copy()
+    d["predicted"] = 10 ** pd.to_numeric(d["log10_N_pathA"])
+    d["measured"] = 10 ** pd.to_numeric(d["measured_log10_cycles"])
+    return d
+
+
+def _crack_growth(row, n=48):
+    """The path A integral for one specimen, as a curve a(N).
+
+    With the threshold removed the Paris integral has a closed form,
+    N(a) = (a^p - a0^p) / (p C (Y ds sqrt(pi/1000))^m), p = 1 - m/2, so N(a)/N_f
+    depends only on a0 and a_c; it is scaled here to the specimen's own path A life
+    from the result file, so the curve ends exactly at the validated number."""
+    a0 = float(row["largest_sqrt_area_um_ai_gauge"]) / 1000.0
+    ac = float(row["a_c_mm"])
+    Nf = float(row["predicted"])
+    p = 1.0 - M_PARIS / 2.0
+    a = np.geomspace(a0, ac, 400)
+    frac = (a ** p - a0 ** p) / (ac ** p - a0 ** p)
+    N = frac * Nf
+    ds = float(row["stress_level_MPa"]) * (1 - R_RATIO)
+    dK = Y_SURF * ds * np.sqrt(np.pi * a / 1000.0)
+    t = np.linspace(0, 1, n)
+    idx = np.searchsorted(frac, t).clip(0, len(a) - 1)
+    return a0, ac, Nf, a, N, dK, idx
+
+
+def _render_growth(p4):
+    st.subheader("Watch one crack grow, from the governing defect to collapse")
+    spec = st.selectbox(
+        "Held-out cylinder", list(p4["cylinder"]),
+        index=list(p4["cylinder"]).index("P017") if "P017" in set(p4["cylinder"]) else 0,
+        format_func=lambda c: f"{c} · {int(p4.set_index('cylinder').loc[c, 'stress_level_MPa'])} MPa",
+        key="p3_growth_spec")
+    row = p4.set_index("cylinder").loc[spec]
+    a0, ac, Nf, a, N, dK, idx = _crack_growth(row)
+    meas = float(row["measured"])
+
+    fig = make_subplots(rows=1, cols=2, column_widths=[0.62, 0.38],
+                        subplot_titles=("crack depth against cycles",
+                                        "driving force ΔK against crack depth"))
+
+    def data_for(k):
+        j = idx[k]
+        return [
+            go.Scatter(x=N[:j + 1], y=a[:j + 1], mode="lines", line=dict(color=ACCENT, width=3),
+                       name="crack depth", showlegend=False),
+            go.Scatter(x=[N[j]], y=[a[j]], mode="markers",
+                       marker=dict(size=13, color=ACCENT, line=dict(color="white", width=2)),
+                       showlegend=False, hoverinfo="skip"),
+            go.Scatter(x=a[:j + 1], y=dK[:j + 1], mode="lines", line=dict(color=NAVY, width=3),
+                       showlegend=False, xaxis="x2", yaxis="y2"),
+        ]
+
+    for tr in data_for(0):
+        fig.add_trace(tr, row=1, col=2 if tr.xaxis == "x2" else 1)
+    fig.frames = [go.Frame(data=data_for(k), traces=[0, 1, 2],
+                           name=f"{N[idx[k]]:,.0f}") for k in range(len(idx))]
+    fig.add_hline(y=ac, line_dash="dot", line_color=GREY, row=1, col=1,
+                  annotation_text="collapse depth", annotation_position="bottom right")
+    fig.add_vline(x=meas, line_dash="dash", line_color=GREEN, row=1, col=1,
+                  annotation_text="measured life", annotation_position="top left")
+    fig.update_xaxes(range=[0, max(Nf, meas) * 1.08], title="cycles", row=1, col=1)
+    fig.update_yaxes(type="log", range=[np.log10(a0 * 0.8), np.log10(ac * 1.3)],
+                     title="crack depth a (mm)", row=1, col=1)
+    fig.update_xaxes(type="log", range=[np.log10(a0 * 0.8), np.log10(ac * 1.3)],
+                     title="crack depth a (mm)", row=1, col=2)
+    fig.update_yaxes(range=[0, dK.max() * 1.1], title="ΔK (MPa√m)", row=1, col=2)
+    fig.update_layout(height=430, margin=dict(t=40, b=110))
+    play(fig, frame_ms=120, transition_ms=0, slider_prefix="cycles ")
+    st.plotly_chart(fig, width="stretch")
+
+    half = float(np.interp(0.5, N / Nf, a))
+    k2 = float(np.interp(2 * a0, a, N)) / Nf if 2 * a0 < ac else 1.0
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Governing defect a₀", f"{a0 * 1000:,.0f} µm")
+    c2.metric("Predicted life", f"{Nf:,.0f}", delta=f"measured {meas:,.0f}",
+              delta_color="off")
+    c3.metric("Life used before the crack doubles", f"{k2:.0%}")
+    plain(
+        f"<b>Read the curve.</b> The crack hardly moves for most of the life: "
+        f"{k2:.0%} of {spec}'s predicted cycles pass before it doubles from "
+        f"{a0 * 1000:,.0f} µm, and at half-life it is still only {half * 1000:,.0f} µm "
+        "deep. ΔK grows with the crack, so growth accelerates and the end comes "
+        "quickly. That is why the starting defect size decides the life, and why "
+        "measuring it from each part's own CT scan matters.")
+
 
 def render():
-    st.title("Phase 3 · Fatigue life prediction")
-    badge("LEAVE-ONE-OUT VALIDATED", "real")
-
-    st.markdown(
-        "Fatigue life is obtained by integrating the crack-growth law from the "
-        "governing defect to net-section collapse, driven by the defect size that "
-        "Phase 1 segmented out of this specimen's own CT scan. The Paris exponent "
-        "is the measured material value and is not fitted, which leaves **one** "
-        "free constant in the whole life model."
-    )
-    st.info(
-        "**Phase 2 does not feed this number.** Peridynamics answers where the crack "
-        "starts and what path it takes — that is its result, and it is robust because "
-        "the order in which bonds break does not depend on the damage coefficient at "
-        "all. Its *cycle counts* are not lives: the coefficient behind them was "
-        "calibrated on soda-lime glass (E = 72 GPa) and applied to 316H (E = 195 GPa), "
-        "a 50.7× error measured directly, then transferred across a 12.5× mesh change "
-        "and an 8–65× crack-size change in a model that provably cannot satisfy "
-        "ΔK-similitude. Redoing that calibration *correctly* moved the prediction "
-        "further from the fatigue record, which is what shows the limit belongs to the "
-        "method rather than the tuning. See Phase 2 for the full record.",
-        icon="ℹ️",
-    )
-
-    st.divider()
-    st.subheader("The governing equation")
-    st.markdown("Stress intensity factor range at crack depth $a$:")
-    st.latex(r"\Delta K(a) = Y \cdot \Delta\sigma \cdot \sqrt{\pi a}")
-    st.markdown("Paris crack-growth law:")
-    st.latex(r"\frac{da}{dN} = C \cdot \big(\Delta K - \Delta K_{th}\big)^{m}")
-    st.markdown("Cycles to grow the governing defect ($a_0 = \\sqrt{\\text{area}}$, Phase 2) to the collapse depth $a_f$:")
-    st.latex(r"N = \int_{a_0}^{a_f} \frac{da}{C\,\big(\Delta K(a) - \Delta K_{th}\big)^{m}}")
-    st.caption(
-        "This integral has a closed form for $\\Delta K_{th}=0$ (verified "
-        "against Simpson's rule to round-off precision); with the threshold "
-        "retained it's evaluated numerically on a log grid, since the "
-        "integrand is dominated by the lower limit when $m>2$ — almost every "
-        "sample on a linear grid would land where it contributes nothing."
-    )
-
-    st.divider()
-    st.subheader("What one fitted constant buys")
+    st.title("Phase 3 · Predict the life")
+    badge("VALIDATED ON HELD-OUT CYLINDERS", "real")
+    p4 = _p4()
     cmp_path = os.path.join(CMP_DATA, "comparison_results.json")
     cmp_d = json.load(open(cmp_path)) if os.path.exists(cmp_path) else {}
+    fac = cmp_d.get("phase4", {}).get("log10_N_pathA", {}).get("factor")
+    thinking(
+        "How many load cycles will this particular part survive?",
+        "Grow a crack from its governing defect to collapse with the Paris law, using "
+        "literature constants for 316L. Then propagate the scatter (Monte Carlo) and "
+        "update it with inspections (Bayesian filter).",
+        "The integral is checked against its closed form; Monte Carlo and the Bayesian "
+        "filter are each checked on a problem with a known answer.",
+        (f"Typical error {fac:.2f}× against the measured lives of the 14 held-out "
+         "cylinders, with no constant fitted to the fatigue data." if fac else
+         "Validation file not found."),
+        "A part's own defect size, measured from its own CT scan, predicts its own life.")
+
+    st.divider()
+    st.subheader("The physics, in three lines")
+    st.markdown("The driving force on a crack of depth $a$ grows with its size:")
+    st.latex(r"\Delta K(a) = Y \cdot \Delta\sigma \cdot \sqrt{\pi a}")
+    st.markdown("The Paris law says how fast the crack grows under that driving force:")
+    st.latex(r"\frac{da}{dN} = C \cdot \big(\Delta K - \Delta K_{th}\big)^{m}")
+    st.markdown("Add up the cycles from the governing defect $a_0 = \\sqrt{\\text{area}}$ to "
+                "the depth $a_f$ at which the remaining section collapses:")
+    st.latex(r"N = \int_{a_0}^{a_f} \frac{da}{C\,\big(\Delta K(a) - \Delta K_{th}\big)^{m}}")
+    st.info(
+        "**The constants, and the one decision.** $C$ and $m$ are literature values for "
+        "316L (Merot et al.), $Y$ = 0.65 is Murakami's factor for a surface defect, and "
+        "none of them is fitted to this dataset's fatigue lives. The decision is the "
+        "threshold: at the literature value $\\Delta K_{th}$ = 5 MPa√m, most of these "
+        "gauge defects sit below it and the model predicts they never fail, yet every one "
+        "of these cylinders failed in test. Cracks growing from defects this small are in "
+        "the short-crack regime, where the long-crack threshold does not hold, so the "
+        "validated prediction (path A) is evaluated with $\\Delta K_{th}$ = 0.",
+        icon="ℹ️")
+
+    if p4 is not None:
+        st.divider()
+        _render_growth(p4)
+
+    st.divider()
+    st.subheader("Every held-out cylinder, predicted then compared")
     p4m = cmp_d.get("phase4", {})
 
     def _fac(key):
         v = p4m.get(key)
         return v.get("factor") if isinstance(v, dict) else None
 
-    def _bias(key):
-        v = p4m.get(key)
-        return v.get("bias") if isinstance(v, dict) else None
-
     c1, c2, c3 = st.columns(3)
     if _fac("log10_N_pred") is not None:
-        c1.metric("Nothing fitted (a priori)", f"{_fac('log10_N_pred'):.1f}×",
-                  help="The same physics with literature constants, 0 free parameters.")
+        c1.metric("A priori: threshold kept", f"{_fac('log10_N_pred'):.1f}×",
+                  help="The same physics with the long-crack threshold of 5 MPa√m and the "
+                       "whole-blank defect size: badly over-predicts.")
     if _fac("log10_N_pathA") is not None:
-        c2.metric("One constant · path A", f"{_fac('log10_N_pathA'):.2f}×",
-                  delta=f"bias {_bias('log10_N_pathA'):+.2f} decades", delta_color="off",
-                  help="Leave-one-out over the 14 held-out cylinders.")
+        c2.metric("Path A · the AI's defect sizes", f"{_fac('log10_N_pathA'):.2f}×",
+                  delta=f"bias {p4m['log10_N_pathA']['bias']:+.2f} decades",
+                  delta_color="off")
     if _fac("log10_N_pathB") is not None:
-        c3.metric("One constant · path B", f"{_fac('log10_N_pathB'):.2f}×",
-                  delta=f"bias {_bias('log10_N_pathB'):+.2f} decades", delta_color="off",
-                  help="The alternative geometry path, same single constant idea.")
+        c3.metric("Path B · reference defect sizes", f"{_fac('log10_N_pathB'):.2f}×",
+                  delta=f"bias {p4m['log10_N_pathB']['bias']:+.2f} decades",
+                  delta_color="off",
+                  help="The same physics fed the reference labels instead of the AI's.")
+    if _fac("log10_N_pathA") and _fac("log10_N_pathB"):
+        st.caption("Path A and path B differ only in who measured the defects, so their "
+                   "closeness says the AI's segmentation adds little error to the life.")
 
-    ladder = cmp_d.get("ladder", [])
-    best = None
-    for row in ladder:
-        if str(row.get("model", "")).startswith("B") and row.get("loo_factor"):
-            if best is None or row["loo_factor"] < best["loo_factor"]:
-                best = row
-    if best:
-        st.markdown(
-            f"For contrast, the best purely **statistical** model in the ladder "
-            f"(*{best['model'].strip()}*) needs **{best['params']} free parameters** to "
-            f"reach **{best['loo_factor']:.2f}×**. The physics model gets there with one, "
-            "because the defect size is measured rather than fitted."
-        )
+    if p4 is not None:
+        p4s = p4.sort_values("measured").reset_index(drop=True)
+        lo = min(p4s["measured"].min(), p4s["predicted"].min()) / 2
+        hi = max(p4s["measured"].max(), p4s["predicted"].max()) * 2
 
-    st.divider()
-    st.subheader("Per-specimen predicted life · leave-one-out")
-    st.caption(
-        "Each specimen is predicted by a model that never saw it. Source: "
-        "`phase4_validation/phase4_error_isolation.csv`, path A."
-    )
-    p4_csv = os.path.join(P4_DATA, "phase4_error_isolation.csv")
-    if os.path.exists(p4_csv):
-        p4 = pd.read_csv(p4_csv)
-        p4 = p4[np.isfinite(pd.to_numeric(p4["log10_N_pathA"], errors="coerce"))].copy()
-        p4["predicted"] = 10 ** pd.to_numeric(p4["log10_N_pathA"])
-        p4["measured"] = 10 ** pd.to_numeric(p4["measured_log10_cycles"])
-        p4["ratio"] = p4["predicted"] / p4["measured"]
-        lims = [min(p4["measured"].min(), p4["predicted"].min()) / 2,
-                max(p4["measured"].max(), p4["predicted"].max()) * 2]
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=lims, y=lims, mode="lines",
-                                 line=dict(dash="dash", color="#8A9096"), name="1:1"))
-        for f in (2.0,):
-            fig.add_trace(go.Scatter(x=lims, y=[v * f for v in lims], mode="lines",
-                                     line=dict(dash="dot", color="#C8CDD2"),
-                                     name=f"±{f:.0f}× band"))
-            fig.add_trace(go.Scatter(x=lims, y=[v / f for v in lims], mode="lines",
-                                     line=dict(dash="dot", color="#C8CDD2"),
-                                     showlegend=False))
-        fig.add_trace(go.Scatter(x=p4["measured"], y=p4["predicted"],
-                                 mode="markers+text", text=p4["cylinder"],
-                                 textposition="top center",
-                                 marker=dict(size=10, color="#B5473A"),
-                                 name="path A prediction"))
-        fig.update_layout(xaxis_type="log", yaxis_type="log",
-                          xaxis_title="measured cycles to failure",
-                          yaxis_title="predicted cycles to failure", height=460)
-        st.plotly_chart(fig, width='stretch')
+        def frame_data(k):
+            shown = p4s.iloc[:k + 1]
+            new = p4s.iloc[[k]]
+            return [
+                go.Scatter(x=[lo, hi], y=[lo, hi], mode="lines",
+                           line=dict(dash="dash", color=GREY), name="perfect agreement"),
+                go.Scatter(x=[lo, hi], y=[2 * lo, 2 * hi], mode="lines",
+                           line=dict(dash="dot", color="#C8CDD2"), name="factor of 2"),
+                go.Scatter(x=[lo, hi], y=[lo / 2, hi / 2], mode="lines",
+                           line=dict(dash="dot", color="#C8CDD2"), showlegend=False),
+                go.Scatter(x=shown["measured"], y=shown["predicted"], mode="markers",
+                           marker=dict(size=11, color=ACCENT), name="held-out cylinder",
+                           text=shown["cylinder"], hoverinfo="text+x+y"),
+                go.Scatter(x=new["measured"], y=new["predicted"], mode="markers+text",
+                           text=new["cylinder"], textposition="top center",
+                           marker=dict(size=20, color="rgba(0,0,0,0)",
+                                       line=dict(color=NAVY, width=3)),
+                           showlegend=False, hoverinfo="skip"),
+            ]
+
+        fig = go.Figure(data=frame_data(0))
+        fig.frames = [go.Frame(data=frame_data(k), name=p4s.loc[k, "cylinder"])
+                      for k in range(len(p4s))]
+        fig.update_layout(xaxis=dict(type="log", range=[np.log10(lo), np.log10(hi)],
+                                     title="measured cycles to failure"),
+                          yaxis=dict(type="log", range=[np.log10(lo), np.log10(hi)],
+                                     title="predicted cycles to failure"),
+                          height=520, margin=dict(t=20, b=110),
+                          legend=dict(orientation="h", y=1.06))
+        play(fig, frame_ms=700, transition_ms=200, slider_prefix="added ")
+        st.plotly_chart(fig, width="stretch")
         resid = np.log10(p4["predicted"]) - np.log10(p4["measured"])
-        st.metric("Leave-one-out scatter", f"{10 ** np.sqrt((resid ** 2).mean()):.2f}×",
-                  help=f"RMSE in decades over {len(p4)} held-out cylinders.")
-        st.dataframe(
-            p4[["cylinder", "stress_level_MPa", "measured", "predicted", "ratio"]]
-            .rename(columns={"cylinder": "specimen", "stress_level_MPa": "σmax (MPa)"})
-            .style.format({"measured": "{:,.0f}", "predicted": "{:,.0f}",
-                           "ratio": "{:.2f}×"}),
-            width='stretch', hide_index=True)
-    else:
-        badge("PHASE 4 VALIDATION NOT FOUND", "pending")
+        st.caption(
+            f"Press Play to add the {len(p4)} held-out cylinders one at a time, shortest "
+            f"life first. Typical error {10 ** np.sqrt((resid ** 2).mean()):.2f}×; every "
+            f"prediction is within a factor of "
+            f"{10 ** np.abs(resid).max():.1f} of its measured life.")
+        with st.expander("The numbers behind the chart"):
+            st.dataframe(
+                p4s[["cylinder", "stress_level_MPa", "measured", "predicted"]]
+                .assign(ratio=p4s["predicted"] / p4s["measured"])
+                .rename(columns={"cylinder": "specimen", "stress_level_MPa": "σmax (MPa)"})
+                .style.format({"measured": "{:,.0f}", "predicted": "{:,.0f}",
+                               "ratio": "{:.2f}×"}),
+                width='stretch', hide_index=True)
 
     _render_monte_carlo()
     _render_bayesian()
@@ -150,266 +240,155 @@ def render():
 # ============================================================== Monte Carlo
 def _render_monte_carlo():
     st.divider()
-    st.header("Monte Carlo — a life *distribution*, not a point estimate")
-    badge("REAL RESULTS", "real")
-    st.markdown(
-        "Every number above is a single point prediction from a single "
-        "governing defect and a single calibrated $C$. Real specimens vary: "
-        "the governing defect is the largest of a random population of flaws, "
-        "and $C$ itself carries genuine calibration uncertainty. This "
-        "propagates **both real, measured** sources of variability through "
-        "the same verified life integral above to produce a predicted-life "
-        "**distribution** per stress level instead of one number."
-    )
-
+    st.header("Monte Carlo: a life distribution, not a single number")
     mc = json.load(open(os.path.join(MCB_DATA, "monte_carlo_results.json")))
     dp, cp = mc["priors"]["defect"], mc["priors"]["C"]
+    thinking(
+        "Parts vary. What spread of lives should we expect at each stress?",
+        "Draw thousands of virtual parts: a governing defect from the 14 measured sizes "
+        "and a crack-growth rate from its calibration scatter, then run each through the "
+        "life integral.",
+        "The defect fit is checked leave-one-out, and the result is checked to settle as "
+        "the number of draws grows.",
+        f"At 300 MPa {100 * mc['sn']['300']['n_at_runout'] / mc['sn']['300']['n_finite']:.0f}% "
+        "of virtual parts outlive the 10-million-cycle run-out; at 450 MPa almost none.",
+        "Near the fatigue limit a single life is the wrong answer: a survival "
+        "probability is the right one.")
 
-    st.subheader("What is random, and why")
-    st.markdown(
-        f"**Governing defect size** — fitted directly to the 14 real "
-        f"gauge-cropped measurements from Phase 2/4 "
-        f"($\\ln(\\mu m) \\sim \\mathcal{{N}}({dp['mu']:.3f}, {dp['sigma']:.3f}^2)$), "
-        "not generated from the defect-population catalogue. An earlier "
-        "version tried exactly that (draw several defects from the 1342-"
-        "defect catalogue, take the maximum, on the Murakami reasoning that "
-        "life is governed by the largest flaw) — the verification below "
-        "caught it systematically overestimating the real governing sizes, "
-        "because the catalogue pools the whole cylinder, most of which sits "
-        "outside the loaded gauge. Rejected in favour of fitting the 14 real "
-        "measurements directly."
-    )
-    st.markdown(
-        f"**Paris coefficient $C$** — log-normal, centred on the calibrated "
-        f"dataset-specific value, $\\sigma(\\ln C) = {cp['sigma_C']:.3f}$, fitted "
-        f"from {cp['n_used']} of {cp['n_total']} calibration residuals — the "
-        f"single most extreme one ({cp['trimmed_value']:.0f}×, a near-"
-        "threshold numerical artefact already flagged in Phase 4) is trimmed "
-        "so it doesn't single-handedly set the uncertainty budget."
-    )
+    smax = st.radio("Stress level", ["300 MPa", "450 MPa"], horizontal=True,
+                    key="mc_stress")
+    sn = mc["sn"][smax.split()[0]]
+    logN = np.log10(np.asarray(sn["N_samples"], float))
+    bins = np.linspace(np.floor(logN.min() * 4) / 4, 7.0 + 1e-9, 41)
+    steps = [n for n in (25, 50, 100, 200, 400, 800, 1600, len(logN)) if n <= len(logN)]
+    ymax = np.histogram(logN, bins)[0].max() * 1.15
 
-    with st.expander("Verification: does the defect-size fit actually match the 14 real measurements?"):
-        st.caption(
-            "Leave-one-out, not fit-to-itself (which would be circular): each "
-            "specimen's real value is checked against a lognormal refitted on "
-            "the OTHER 13. A working fit spreads these percentiles roughly "
-            "uniformly over 0-100%; a biased one clusters them near one end."
-        )
-        v1 = pd.DataFrame(mc["verify_extremes"])
-        figv1 = go.Figure(go.Bar(x=v1["specimen"], y=v1["percentile"], marker_color="#B5473A"))
-        figv1.add_hrect(y0=0, y1=100, line_width=0)
-        figv1.update_layout(yaxis_title="leave-one-out percentile", height=320,
-                            yaxis_range=[0, 100])
+    def hist_frame(n):
+        h, _ = np.histogram(logN[:n], bins)
+        centres = 0.5 * (bins[1:] + bins[:-1])
+        return [go.Bar(x=centres, y=h, width=np.diff(bins) * 0.95, marker_color=ACCENT)]
+
+    fig = go.Figure(data=hist_frame(steps[0]))
+    fig.frames = [go.Frame(data=hist_frame(n), name=f"{n:,} draws") for n in steps]
+    for p, label in ((sn["log10_p5"], "p5"), (sn["log10_p50"], "median"),
+                     (sn["log10_p95"], "p95")):
+        fig.add_vline(x=p, line_dash="dash", line_color="#5A6067", annotation_text=label)
+    fig.update_layout(xaxis_title="log₁₀(cycles to failure)", yaxis_title="virtual parts",
+                      yaxis_range=[0, ymax], height=420, margin=dict(t=20, b=110),
+                      bargap=0)
+    play(fig, frame_ms=600, transition_ms=300, slider_prefix="")
+    st.plotly_chart(fig, width="stretch")
+    pct = 100 * sn["n_at_runout"] / sn["n_finite"]
+    st.caption(
+        f"Press Play to watch the distribution build up as draws arrive (the app ships "
+        f"{len(logN):,} of the {sn['n_total']:,} draws). The run-out share, {pct:.1f}%, is "
+        f"counted on all {sn['n_total']:,}. Median life about "
+        f"{10 ** sn['log10_p50']:,.0f} cycles.")
+    if pct > 2:
+        plain(
+            f"<b>The spike at the right edge is real.</b> {pct:.0f}% of virtual parts at "
+            f"{smax} never accumulate enough crack growth to fail inside 10 million "
+            "cycles, the limit at which the real tests were stopped too. The model was "
+            "not told about a fatigue limit; this pile-up falls out of the physics, the "
+            "same behaviour real S-N data show near the endurance limit.")
+
+    with st.expander("The checks behind the distribution"):
+        st.markdown(
+            f"**Defect size**: lognormal fitted to the 14 measured governing defects, "
+            f"$\\ln(\\mu m) \\sim \\mathcal{{N}}({dp['mu']:.3f}, {dp['sigma']:.3f}^2)$. Each "
+            "specimen's real value is checked against a fit made without it; a good fit "
+            "spreads those percentiles evenly from 0 to 100%.")
+        v1 = pd.DataFrame(mc["verify_extremes"]).sort_values("percentile")
+        figv1 = go.Figure(go.Bar(x=v1["specimen"], y=v1["percentile"], marker_color=NAVY))
+        figv1.update_layout(yaxis_title="leave-one-out percentile (%)", height=300,
+                            yaxis_range=[0, 100], margin=dict(t=10))
         st.plotly_chart(figv1, width='stretch')
-        st.caption(f"KS statistic {mc['verify_extremes_ks']:.3f} against uniform "
-                  f"(n=14) — no strong clustering at either end.")
-
-    with st.expander("Verification: Monte Carlo convergence (does more samples help predictably?)"):
-        st.caption(
-            "A single realisation per sample size is dominated by which seed "
-            "it drew, not by n — median convergence is O(n⁻⁰·⁵) in "
-            "expectation, not sample to sample. Each sample size below is "
-            "repeated 20 times independently and the RMSE across repeats is "
-            "checked against the theoretical rate, the standard way to see "
-            "through Monte Carlo's own sampling noise."
-        )
+        st.caption(f"Kolmogorov–Smirnov statistic {mc['verify_extremes_ks']:.3f} against a "
+                   "uniform spread: no clustering at either end.")
+        st.markdown(
+            f"**Crack-growth rate**: lognormal about the calibrated value, "
+            f"$\\sigma(\\ln C) = {cp['sigma_C']:.3f}$, from {cp['n_used']} of "
+            f"{cp['n_total']} calibration residuals (one near-threshold artefact trimmed).")
         v2 = pd.DataFrame(mc["verify_convergence"]["table"])
-        figv2 = go.Figure(go.Scatter(x=v2["n_samples"], y=v2["rmse"], mode="lines+markers"))
-        figv2.update_layout(xaxis_type="log", yaxis_type="log",
-                           xaxis_title="Monte Carlo sample count",
-                           yaxis_title="RMSE (log₁₀ decades, 20 repeats)", height=340)
+        figv2 = go.Figure(go.Scatter(x=v2["n_samples"], y=v2["rmse"], mode="lines+markers",
+                                     line=dict(color=NAVY)))
+        figv2.update_layout(xaxis_type="log", yaxis_type="log", height=300,
+                            xaxis_title="draws", yaxis_title="RMSE of the median (decades)",
+                            margin=dict(t=10))
         st.plotly_chart(figv2, width='stretch')
-        rates = [f"{r:.2f}" for r in v2["rate"].dropna()]
-        st.caption(f"Observed rates: {', '.join(rates)} — close to the theoretical 0.5.")
-
-    st.subheader("Probabilistic S-N at the real test stresses")
-    cols = st.columns(2)
-    censor_pct = {}
-    for col, smax in zip(cols, (300.0, 450.0)):
-        sn = mc["sn"][str(int(smax))]
-        # Stated percentage always comes from n_at_runout/n_finite -- counted
-        # once on the full 20000-draw run and stored in the JSON -- never
-        # re-derived from N_samples below, which the app's own data file
-        # ships downsampled to 3000 points to keep the repo small. Re-deriving
-        # from that trimmed array would quietly drift from the number the
-        # desktop app shows for the exact same run.
-        pct = 100 * sn["n_at_runout"] / sn["n_finite"]
-        censor_pct[smax] = pct
-        with col:
-            st.markdown(f"**{smax:.0f} MPa**")
-            logN = np.log10(sn["N_samples"])
-            fig = go.Figure(go.Histogram(x=logN, nbinsx=40, marker_color="#B5473A"))
-            for p, label in ((sn["log10_p5"], "p5"), (sn["log10_p50"], "median"),
-                            (sn["log10_p95"], "p95")):
-                fig.add_vline(x=p, line_dash="dash", line_color="#5A6067",
-                             annotation_text=label)
-            if pct > 2:
-                fig.add_annotation(
-                    x=7.0, y=1.0, yref="paper", yanchor="top",
-                    text=f"{pct:.0f}% right-censored<br>at 10⁷-cycle run-out",
-                    showarrow=True, ax=-60, ay=20,
-                    font=dict(size=11, color="#5A6067"),
-                    bgcolor="rgba(255,255,255,0.85)")
-            fig.update_layout(xaxis_title="log₁₀(cycles to failure)",
-                             yaxis_title="Monte Carlo draws", height=320,
-                             margin=dict(t=10))
-            st.plotly_chart(fig, width='stretch')
-            p95_text = (f"≥{10**sn['log10_p95']:,.0f} (right-censored)"
-                       if sn["log10_p95"] >= 6.999 else f"{10**sn['log10_p95']:,.0f}")
-            st.caption(f"p5 / median / p95: {10**sn['log10_p5']:,.0f} / "
-                      f"{10**sn['log10_p50']:,.0f} / {p95_text} cycles "
-                      f"({sn['n_finite']}/{sn['n_total']} admissible draws, "
-                      f"{pct:.1f}% capped at the real 10⁷ ORNL run-out limit)")
-
-    st.markdown(
-        f"**What the run-out spike means.** At 300 MPa, **{censor_pct[300.0]:.0f}%** "
-        "of the simulated population is predicted to survive beyond the ORNL "
-        "test's 10⁷-cycle run-out limit — not a rendering artefact, and not "
-        "the model breaking down. It's right-censoring: 300 MPa sits close "
-        "enough to this material's threshold-controlled regime (set by "
-        "$\\Delta K_{th}$ in the calibrated Paris law) that a large share of "
-        "specimens governed by smaller defects never accumulate enough "
-        "driving force to fail inside a practical test duration, so the "
-        "life integral is capped at the real run-out limit exactly as ORNL's "
-        f"own suspended tests were. At 450 MPa the same mechanism is "
-        f"negligible (**{censor_pct[450.0]:.1f}%** censored): life there is "
-        "governed by finite crack growth to a measurable failure, not "
-        "threshold arrest. This qualitative shift — a fatigue-limit-like "
-        "pile-up at low stress, a smooth failure-dominated tail at high "
-        "stress — is exactly what real S-N curves show near the endurance "
-        "limit, and it falls out of the calibrated physics rather than "
-        "being imposed on the model."
-    )
-    st.markdown(
-        "**Why it matters for this thesis.** A single point-estimate life "
-        "cannot express this. The distribution answers a different, more "
-        "useful question at each stress: not *when does it fail*, but "
-        "*what fraction fail by a given life*. At 300 MPa, treating a "
-        "predicted life as a single number would already be the wrong "
-        "framing for over a third of the population — the right statement "
-        "is a survival probability. That distinction is exactly what a "
-        "reliability-based design or inspection-interval decision needs, "
-        "and it is a genuine physical check on the model: it recovers "
-        "near-threshold, fatigue-limit-like behaviour without that "
-        "behaviour being hand-coded anywhere."
-    )
+        st.caption("Each sample size repeated 20 times: the error falls at close to the "
+                   "theoretical rate of one over the square root of the draws.")
 
 
 # ============================================================== Bayesian filter
 def _render_bayesian():
     st.divider()
-    st.header("Bayesian particle filter — updating life as inspections arrive")
-    badge("REAL RESULTS", "real")
-    st.markdown(
-        "Monte Carlo builds the **prior** life distribution before any "
-        "component-specific information exists. This is the other half: "
-        "given periodic inspections of *one actual component*, update that "
-        "prior into a posterior that narrows as evidence accumulates."
-    )
-    st.markdown(
-        "The state (crack size $a$) and the uncertain parameter ($C$) "
-        "separate algebraically in the Paris integral, so no per-particle ODE "
-        "stepping is needed — one shape function, computed once, gives every "
-        "particle's exact trajectory from its own $C$:"
-    )
-    st.latex(r"S(a) = \int_{a_0}^{a} \frac{da'}{(\Delta K(a') - \Delta K_{th})^{m}}"
-            r"\quad\Rightarrow\quad a_i(N) = S^{-1}(C_i \cdot N)")
-    st.caption(
-        "$S(a)$ does not depend on $C$ — each particle just carries its own "
-        "$C_i$, and its predicted crack size at any cycle count $N$ is a "
-        "direct lookup, not a simulation. Particles are weighted by how well "
-        "their prediction matches each noisy inspection (a periodic crack-"
-        "length reading), then resampled — with roughening after resampling "
-        "to prevent the particle collapse weak observations can otherwise "
-        "cause (a real failure mode this project's own verification caught "
-        "and fixed, not a hypothetical one)."
-    )
-
+    st.header("Bayesian filter: sharpening one part's life as inspections arrive")
     bf = json.load(open(os.path.join(MCB_DATA, "bayesian_results.json")))
+    r = bf["verify_recovery"]
+    step = next((i for i, h in enumerate(r["history"], 1)
+                 if abs(h["Nf_mean"] - r["Nf_true"]) / r["Nf_true"] <= 0.20), None)
+    thinking(
+        "Once a part is in service and inspected, how much better can we predict it?",
+        "4,000 particles, each a possible crack-growth rate, are reweighted after every "
+        "crack-length reading and resampled.",
+        "A synthetic part with a known true life: the filter starts from the population "
+        "prior, which does not know it, and must find it.",
+        f"It reaches the true life (within 20%) at inspection {step}, not by the 3rd, and "
+        f"keeps at least {min(h['ess'] for h in r['history']):,.0f} effective particles.",
+        "H3 is partly supported: the filter converges, later than hypothesised.")
+    st.latex(r"S(a) = \int_{a_0}^{a} \frac{da'}{(\Delta K(a') - \Delta K_{th})^{m}}"
+             r"\quad\Rightarrow\quad a_i(N) = S^{-1}(C_i \cdot N)")
+    st.caption("Crack size and growth rate separate in the Paris integral, so each "
+               "particle's whole crack history follows from one shared function and its own "
+               "rate Cᵢ: a lookup, not a simulation.")
 
-    with st.expander("Verification: does the posterior actually find a known true answer?"):
-        st.caption(
-            "A synthetic specimen with a KNOWN true C. Observations are drawn "
-            "from its own true trajectory. The filter starts from the "
-            "population-wide prior (Monte Carlo's own), which does not know "
-            "the true value, and must converge toward it."
-        )
-        r = bf["verify_recovery"]
-        hist = pd.DataFrame(r["history"])
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=hist["N_inspection"], y=hist["Nf_p90"],
-                                 mode="lines", line=dict(width=0), showlegend=False))
-        fig.add_trace(go.Scatter(x=hist["N_inspection"], y=hist["Nf_p10"],
-                                 mode="lines", fill="tonexty",
-                                 fillcolor="rgba(181,71,58,0.15)", line=dict(width=0),
-                                 name="p10-p90 credible band"))
-        fig.add_trace(go.Scatter(x=hist["N_inspection"], y=hist["Nf_mean"],
-                                 mode="lines+markers", name="posterior mean",
-                                 line=dict(color="#B5473A")))
-        fig.add_hline(y=r["Nf_true"], line_dash="dash", line_color="#2E7D32",
-                     annotation_text="true life")
-        fig.update_layout(yaxis_type="log", xaxis_title="cycles inspected so far",
-                         yaxis_title="predicted cycles to failure", height=380,
-                         legend=dict(orientation="h", y=1.15))
-        st.plotly_chart(fig, width='stretch')
-        final = r["history"][-1]
-        err_pct = abs(final["Nf_mean"] - r["Nf_true"]) / r["Nf_true"] * 100
-        band0 = r["history"][0]["Nf_p90"] - r["history"][0]["Nf_p10"]
-        bandf = final["Nf_p90"] - final["Nf_p10"]
-        st.caption(f"Final error vs. true life: {err_pct:.1f}%. Credible band "
-                  f"narrowed {band0/bandf:.0f}× from first to last inspection.")
-
-        st.markdown("**Particle-count check — a genuine finding, reported honestly:**")
-        v2 = pd.DataFrame(bf["verify_particle_convergence"])
-        fig2 = go.Figure(go.Scatter(x=v2["n_particles"], y=v2["rmse"], mode="lines+markers"))
-        fig2.update_layout(xaxis_type="log", xaxis_title="particle count",
-                          yaxis_title="RMSE (log₁₀ decades, 15 repeats)", height=300)
-        st.plotly_chart(fig2, width='stretch')
-        st.caption(
-            "RMSE stays flat (≈0.11-0.12) across a 64× range in particle "
-            "count. For this single-parameter estimation problem from six "
-            "observations, 100 particles already resolves the posterior as "
-            "well as 6400 does — the residual is the irreducible uncertainty "
-            "six noisy observations leave, not Monte Carlo sampling error. "
-            "Reported as found rather than forced into a 1/√n narrative the "
-            "data does not show."
-        )
-
-    st.subheader("Applied to three real held-out specimens")
-    st.caption(
-        "Real stress and real governing-defect size for each. Inspections are "
-        "synthetic (no in-service sensor stream exists in this dataset), but "
-        "generated from each specimen's own trajectory at the $C$ that "
-        "exactly explains its own measured life — the filter starts from the "
-        "population prior, which does not know that value, and tries to find it."
-    )
-    rows = []
+    cases = {"Synthetic part (known true life)": (r["history"], r["Nf_true"])}
     for spec, rs in bf["specimens"].items():
-        final = rs["history"][-1]
-        degenerate = final["Nf_mean"] >= 0.99e7
-        rows.append(dict(
-            specimen=spec, measured=rs["Nf_measured"],
-            posterior_mean=final["Nf_mean"],
-            band=f"[{final['Nf_p10']:,.0f}, {final['Nf_p90']:,.0f}]",
-            note="run-out on evidence so far (see below)" if degenerate else "converged",
-        ))
-    df = pd.DataFrame(rows)
-    df["measured"] = df["measured"].map(lambda v: f"{v:,.0f}")
-    df["posterior_mean"] = df["posterior_mean"].map(lambda v: f"{v:,.0f}")
-    st.dataframe(df, width='stretch', hide_index=True)
+        cases[f"{spec} · measured {rs['Nf_measured']:,} cycles"] = (rs["history"],
+                                                                    rs["Nf_measured"])
+    which = st.selectbox("Part", list(cases), key="bayes_case")
+    hist, truth = cases[which]
+    H = pd.DataFrame(hist)
+    ylo = min(H["Nf_p10"].min(), truth) / 2
+    yhi = max(H["Nf_p90"].max(), truth) * 2
 
-    st.warning(
-        "**P045 does not converge — a genuine prognostics finding, not a "
-        "bug.** Its own crack growth is so back-loaded (Paris exponent "
-        "m≈3.94 makes growth highly nonlinear) that inspections through 90% "
-        "of its measured life show growth smaller than the assumed "
-        "measurement noise. Every particle in the posterior ends up slower-"
-        "growing than the true rate, because slow growth is the more "
-        "probable explanation for data that looks like no growth at all — "
-        "the same 'inspection cannot see it coming' limitation real "
-        "structural-health-monitoring programmes face for defect "
-        "populations dominated by a short final growth burst. P017 and P059 "
-        "(less back-loaded relative to their inspection schedule) converge "
-        "to within 1-3% of their real measured lives.",
-        icon="🔍",
-    )
+    def bframe(k):
+        h = H.iloc[:k + 1]
+        return [
+            go.Scatter(x=h["N_inspection"], y=h["Nf_p90"], mode="lines", line=dict(width=0),
+                       showlegend=False, hoverinfo="skip"),
+            go.Scatter(x=h["N_inspection"], y=h["Nf_p10"], mode="lines", fill="tonexty",
+                       fillcolor="rgba(181,71,58,0.18)", line=dict(width=0),
+                       name="10th–90th percentile"),
+            go.Scatter(x=h["N_inspection"], y=h["Nf_mean"], mode="lines+markers",
+                       line=dict(color=ACCENT, width=3), name="posterior mean"),
+        ]
+
+    fig = go.Figure(data=bframe(0))
+    fig.frames = [go.Frame(data=bframe(k), name=f"inspection {k + 1}")
+                  for k in range(len(H))]
+    fig.add_hline(y=truth, line_dash="dash", line_color=GREEN,
+                  annotation_text="true life" if "Synthetic" in which else "measured life")
+    fig.update_layout(yaxis=dict(type="log", range=[np.log10(ylo), np.log10(yhi)],
+                                 title="predicted cycles to failure"),
+                      xaxis=dict(range=[0, H["N_inspection"].max() * 1.08],
+                                 title="cycles inspected so far"),
+                      height=430, margin=dict(t=20, b=110),
+                      legend=dict(orientation="h", y=1.08))
+    play(fig, frame_ms=1000, transition_ms=300, slider_prefix="")
+    st.plotly_chart(fig, width="stretch")
+    last = hist[-1]
+    st.caption(
+        f"Press Play to add one inspection at a time. After the last, the posterior mean "
+        f"is {last['Nf_mean']:,.0f} cycles against {truth:,.0f}; the band narrowed "
+        f"{(hist[0]['Nf_p90'] - hist[0]['Nf_p10']) / max(last['Nf_p90'] - last['Nf_p10'], 1):.0f}× "
+        "from first to last inspection.")
+    if "P045" in which:
+        st.warning(
+            "**P045 does not converge, a genuine prognostics finding.** Its crack grows so "
+            "late in life (the Paris exponent makes growth strongly back-loaded) that "
+            "inspections through 90% of its life see growth smaller than the measurement "
+            "noise. Slow growth is then the most probable explanation, so the filter "
+            "predicts a run-out. Real inspection programmes face exactly this limit.",
+            icon="🔍")

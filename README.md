@@ -1,43 +1,44 @@
 # PINN of LPBF Fatigue Life
 
-A Streamlit dashboard of the physics-informed fatigue-life work for *Mathematical
-Modelling of Internal Properties of LPBF Components* (Lamek S. Indongo, BSc Hons
-Mechanical Engineering, UNAM). Built for the supervisor's request for a
-**physics-informed machine learning (PIML) comparison model** alongside the
-project's peridynamic framework.
+A Streamlit app that explains, and shows the evidence for, *Mathematical Modelling of
+Fatigue Life of Laser Powder Bed Fusion Components* (Lamek S. Indongo, BSc Hons
+Mechanical Engineering, UNAM; supervisor Assoc. Prof. Albert Shikongo, co-supervisor
+Dr. Surendra Kumar Saini). It was first built for the supervisor's request for a
+**physics-informed machine learning (PIML) comparison model**, and now walks a reader
+through the whole method.
 
-Every number and figure in this app is read from the verified pipeline in the
-private `Research files/` working tree, not recomputed or approximated for
-display. Where a stage has not been run, the app says so rather than showing an
-illustrative placeholder.
+Every number and figure is read from the verified pipeline's result files in `data/`
+at render time, not recomputed or approximated for display. Where a stage has not
+been run, the app says so rather than showing a placeholder.
 
 ## Layout
 
-A single-page app with a top pipeline bar (Phase 1-4, styled after the project's
-own desktop demo tool), not a sidebar. Every chart is a live Plotly graph built
-from the underlying data at render time — nothing is a pre-rendered PNG. The one
-exception is the crack-growth GIF (Phase 2), which is real simulation footage,
-not a statistical chart, so there is nothing to "graph" instead.
+A single-page app with a top bar, read left to right as a story:
 
-Phase numbering matches the thesis report exactly (not the exploratory "Monte
-Carlo" phase that appeared in an earlier, superseded version of the demo app):
-
-| Phase | Status |
+| Page | What it shows |
 |---|---|
-| 1 · Segmentation | Real — nnU-Net v2, 5-fold cross-validated |
-| 2 · Defect extraction | Real — 1342-defect catalogue, AOP24 cross-check, and a live raw CT / segmentation overlay / extracted-region viewer on real CT slices |
-| 3 · Fatigue life prediction | Real — threshold-corrected Paris integral driven by each specimen's own segmented defect size (one fitted constant), Monte Carlo uncertainty propagation and a Bayesian particle filter. Leave-one-out validated at **1.36×** |
-| 4 · Validation & PIML | Real — closed-loop validation, statistical ladder, sign-constrained physics regression, and a new physics-informed neural network (PINN) |
+| Overview | The question in plain words, the measured 21× scatter in life, the two-arm method, and one held-out cylinder (P017) followed from CT slice to predicted life |
+| Phase 1 · Find the defects | nnU-Net v2 segmentation, an animated CT stack, 5-fold cross-validation (Dice 0.805) |
+| Phase 2 · Measure them · where cracks start | The 1342-defect catalogue, the raw CT / overlay / extracted-region viewer, the peridynamic crack animation, and H2 on all 14 measured sections, animated, with the exact first bond marked |
+| Phase 3 · Predict the life | The Paris integral animated for any held-out cylinder, every held-out prediction revealed one by one, the Monte Carlo distribution building up, the Bayesian band narrowing per inspection |
+| Phase 4 · Test the prediction | The comparison ladder climbed rung by rung, the sign-constrained regression and the PINN, with their verifications |
+| Conclusions | The four hypotheses scored from their result files, contributions, limits, next steps |
+
+Every phase opens with the same five boxes: the question, how it is answered, the
+check against a known answer, what was found, and what it means.
 
 ### Which arm produces the fatigue life
 
 The defect catalogue feeds two independent arms and only one ends in a life. The
-**geometry arm** takes the governing defect size into the Paris integral — that is the
-life, validated leave-one-out at 1.36× against the ORNL fatigue record with a single
-fitted constant, where the best fitted statistical model in the ladder needs four free
-parameters to reach 1.43×. The **mechanics arm** is peridynamics, which establishes the
-crack initiation site and path and is robust to the calibration, because
-the order in which bonds break is independent of the damage coefficient.
+**geometry arm** takes the governing defect size into the Paris integral: that is the
+life. The validated prediction (path A) uses literature constants for 316L
+(C = 6.25e-10, m = 3.94), Murakami's Y = 0.65 and the network's own gauge-cropped
+defect size, with the long-crack threshold removed, because at the literature value
+of 5 MPa sqrt(m) most of these specimens would be predicted never to fail although
+every one failed (the short-crack regime). Nothing is fitted to the fatigue lives; the
+typical error is 1.36x on the 14 held-out cylinders, where the best fitted statistical
+model in the ladder needs four free parameters to reach 1.43x. The **mechanics arm** is
+peridynamics, which establishes the crack initiation site and path.
 
 Peridynamic cycle counts are **not** fatigue lives and the app does not present them as
 such. The coefficient behind them was calibrated on soda-lime glass (E = 72 GPa) and

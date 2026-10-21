@@ -7,7 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src import ct_viewer as cv
-from src.ui import badge
+from src.ui import badge, plain, play, thinking
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA = os.path.join(ROOT, "data", "phase2_extraction")
@@ -33,14 +33,24 @@ def _region_grid(rgb, regions, max_labels=6):
 
 
 def render():
-    st.title("Phase 2 · Defect extraction & crack growth")
+    st.title("Phase 2 · Measure the defects, and find where cracks start")
     badge("REAL RESULTS", "real")
-    st.caption(
-        "Two steps on real data: (1) isolate and size every defect from the "
-        "Phase 1 predicted masks, (2) grow a crack from the governing defect "
-        "with peridynamics. Phase 3 turns that crack path into an actual cycle "
-        "count — this phase is about the geometry and the mechanics."
-    )
+    h2 = _h2()
+    thinking(
+        "How big is each defect, and does the crack really start at the biggest one?",
+        "Every defect is isolated in 3-D and sized as √area. A peridynamic model of the "
+        "measured section shows which defect cracks first and where the crack goes.",
+        "The peridynamic model is checked against classical elasticity before use: its "
+        "stiffness error falls from 13.8% to 0.29% as the horizon refines.",
+        (f"The first bond breaks at the largest defect in {h2['hits_by_area']} of "
+         f"{h2['n']} sections ({h2['fraction_by_area']:.0%}), short of the 90% H2 "
+         "required." if h2 else "H2 result file not found."),
+        "The defect sizes feed the life prediction (Phase 3). Where a crack starts "
+        "depends on more than size: surface proximity and neighbours matter.")
+    plain("<b>Two arms, two questions.</b> The <b>size</b> of the governing defect goes "
+          "to Phase 3 and becomes the predicted life. The <b>peridynamic crack model</b> "
+          "answers a different question, where the crack starts and which way it runs. "
+          "Its cycle count is not used as a life.")
 
     st.markdown("#### How a defect becomes a number")
     st.markdown(
@@ -191,17 +201,17 @@ def render():
         icon="ℹ️",
     )
 
-    _render_h2()
-
     st.markdown(
-        "**Real measured defect field, P017, 300 MPa at R = 0.1.** Cyan = "
-        "pre-existing lack-of-fusion defects (real size/shape from the "
-        "catalogue above; positions are a random realisation since the "
-        "catalogue records size and shape, not coordinates). Orange = fatigue "
-        "damage accumulated since cycle zero."
-    )
+        "**The measured defect section of P017, 450 MPa, R = 0.1.** Teal = the "
+        "lack-of-fusion defects segmented from this cylinder's own CT, at their real "
+        "sizes and real positions, modelled as voids. Orange = fatigue damage "
+        "accumulated since cycle zero. Watch the crack leave both tips of the large "
+        "central defect and link towards its neighbours.")
+    mp4 = os.path.join(ROOT, "assets", "phase2_crack_growth.mp4")
     gif = os.path.join(ROOT, "assets", "phase2_crack_growth.gif")
-    if os.path.exists(gif):
+    if os.path.exists(mp4):
+        st.video(mp4, autoplay=True, loop=True, muted=True)
+    elif os.path.exists(gif):
         st.image(gif, width='stretch')
     st.warning(
         "The cycle count on this animation paces the playback; it is **not** a fatigue "
@@ -211,81 +221,164 @@ def render():
         icon="⚠️",
     )
 
+    _render_h2()
+
 
 # ============================================================== hypothesis H2
+def _h2():
+    p = os.path.join(ROOT, "data", "phase2_peridynamics", "h2_first_bond.json")
+    if not os.path.exists(p):
+        return None
+    import json
+    return json.load(open(p, encoding="utf-8"))
+
+
+@st.cache_data(show_spinner="Drawing the fourteen sections…")
+def _section_frames():
+    """One image per measured section: metal grey, defects teal, the dominant defect
+    dark teal, final damage orange. Rotated so the load axis runs left to right."""
+    import base64
+    import io
+    from PIL import Image
+    from scipy import ndimage as ndi
+
+    z = np.load(os.path.join(ROOT, "data", "phase2_peridynamics", "h2_sections.npz"))
+    d = _h2()
+    out = []
+    for r in d["rows"]:
+        spec = r["specimen"]
+        void = z[f"{spec}__void"]
+        dmg = np.clip(z[f"{spec}__damage_final"].astype(float), 0, 1)
+        lab, _ = ndi.label(void)
+        rgb = np.empty(void.shape + (3,), float)
+        rgb[:] = (221, 224, 227)
+        rgb[void] = (46, 125, 145)
+        rgb[lab == r["dominant_label"]] = (16, 70, 86)
+        w = np.where(void, 0.0, np.clip(dmg * 3.0, 0, 1))[..., None]
+        rgb = rgb * (1 - w) + np.array((240, 120, 30)) * w
+        img = np.flipud(rgb.astype(np.uint8))           # z upward
+        img = np.rot90(img, k=-1)                        # load axis left to right
+        im = Image.fromarray(np.ascontiguousarray(img))
+        scale = 3
+        im = im.resize((im.width * scale, im.height * scale), Image.NEAREST)
+        buf = io.BytesIO()
+        im.save(buf, format="PNG", optimize=True)
+        out.append(dict(spec=spec, src="data:image/png;base64," +
+                        base64.b64encode(buf.getvalue()).decode(),
+                        w=im.width, h=im.height, row=r, scale=scale,
+                        nz=void.shape[0], nx=void.shape[1]))
+    return out
+
+
+def _star_xy(f):
+    """The first bond's pixel position after the same flip and rotation as the image.
+    Worked out from the transforms rather than assumed, and checked by drawing."""
+    r, s = f["row"], f["scale"]
+    row, col = r["first_bond_row"], r["first_bond_col"]
+    fr = f["nz"] - 1 - row              # after flipud: row index from the top
+    # rot90(k=-1) maps (i, j) of an (H, W) image to (j, H - 1 - i)
+    ri, ci = col, f["nz"] - 1 - fr
+    return (ci + 0.5) * s, (ri + 0.5) * s
+
+
 def _render_h2():
     """The H2 result, read from the pipeline output rather than typed in here.
 
-    Source: data/phase2_peridynamics/h2_initiation_measured.json, written by
-    scripts/h2_initiation_measured.py in the Research files tree. If the file is
-    absent the section says so instead of showing a placeholder.
-    """
-    import json
-
-    path = os.path.join(ROOT, "data", "phase2_peridynamics",
-                        "h2_initiation_measured.json")
+    Source: data/phase2_peridynamics/h2_first_bond.json and h2_sections.npz, written
+    by scripts/h2_first_bond.py in the Research files tree."""
+    d = _h2()
     st.divider()
-    st.subheader("Hypothesis H2 — does the crack start at the most severe defect?")
-    if not os.path.exists(path):
+    st.subheader("Hypothesis H2: does the crack start at the most severe defect?")
+    if d is None:
         badge("H2 NOT YET RUN", "pending")
-        st.caption(
-            "`data/phase2_peridynamics/h2_initiation_measured.json` is not present. "
-            "Run `scripts/h2_initiation_measured.py` in the Research files tree."
-        )
+        st.caption("data/phase2_peridynamics/h2_first_bond.json is not present.")
         return
-
-    with open(path, encoding="utf-8") as fh:
-        d = json.load(fh)
-    n = d["n_ok"]
-    crit = d["criterion"]
-    f_area, f_sev = d["fraction_by_area"], d["fraction_by_severity"]
-    met = d["met_by_area"] or d["met_by_severity"]
-
-    badge("NOT SUPPORTED" if not met else "SUPPORTED", "real")
+    n, crit = d["n"], d["criterion"]
+    met = d["fraction_by_area"] >= crit
+    # the badge says what happened against the criterion; "not supported" is the thesis's
+    # formal verdict and is stated in the text, not shouted in red
+    badge(f"Criterion {'met' if met else 'not met'} · {d['hits_by_area']} of {n} "
+          f"({d['fraction_by_area']:.0%}) vs ≥ {crit:.0%}", "real" if met else "no")
     st.markdown(
-        f"H2 states that a crack model seeded with the measured defect geometry "
-        f"initiates at the most severe defect in at least **{crit:.0%}** of "
-        f"realisations. Tested here on the **{n} measured sections** completed under "
-        f"the current calibration — real defect sizes *and* real positions, not a "
-        f"randomised arrangement."
-    )
+        f"H2 required the crack to start at the most severe defect in at least "
+        f"**{crit:.0%}** of cases. It is tested on the **{n} measured sections** "
+        "themselves: real defect sizes and real positions. "
+        + ("**Supported.**" if met else
+           "In the thesis's terms the hypothesis is **not supported**: a finding about "
+           "what decides where a crack starts, not a failure of the method."))
+    plain(
+        "<b>How the starting point is found, exactly.</b> Every bond in the model starts "
+        "with the same life and loses it fastest where it is stretched most. So the first "
+        "bond to break is simply the most-stretched bond in the first elastic solution. "
+        "One solve per section finds it, and the answer does not depend on the damage "
+        "coefficient or on how many bonds the simulation lets break per step.")
+
     c1, c2, c3 = st.columns(3)
-    c1.metric("Severity = largest √area", f"{f_area:.1%}",
+    c1.metric("Starts at the largest defect", f"{d['fraction_by_area']:.1%}",
               delta=f"{d['hits_by_area']} of {n}", delta_color="off",
-              help="Severity as H2 is worded.")
-    c2.metric("Severity = Murakami ΔK", f"{f_sev:.1%}",
+              help="Severity as H2 is worded: √area.")
+    c2.metric("Starts at the most severe by Murakami ΔK", f"{d['fraction_by_severity']:.1%}",
               delta=f"{d['hits_by_severity']} of {n}", delta_color="off",
-              help=f"√area weighted by the geometry factor: {d['Y_surface']} for a "
-                   f"surface-connected defect, {d['Y_internal']} for an enclosed one.")
-    c3.metric("Criterion", f"{crit:.0%}",
-              delta="not met" if not met else "met", delta_color="off")
+              help="√area weighted 0.65 for a surface defect, 0.50 for an enclosed one.")
+    c3.metric("Criterion", f"{crit:.0%}", delta="not met" if not met else "met",
+              delta_color="off")
 
-    rows = [r for r in d["rows"] if r.get("status") == "ok"]
-    if rows:
-        df = pd.DataFrame([{
-            "specimen": r["specimen"],
-            "σmax (MPa)": r["sigma_max_MPa"],
-            "defects": r["n_defects"],
-            "initiated at (µm)": r["initiation_defect_sqrt_area_um"],
-            "surface?": "yes" if r["initiation_defect_is_surface"] else "no",
-            "rank by area": r["initiation_defect_size_rank"],
-            "rank by severity": r["initiation_defect_severity_rank"],
-            "at most severe?": "yes" if r["initiated_at_most_severe"] else "no",
-        } for r in rows])
-        st.dataframe(df, width='stretch', hide_index=True)
+    frames = _section_frames()
+    if frames:
+        def _title(f):
+            r = f["row"]
+            verdict = "✔ largest defect" if r["initiated_at_dominant"] else "✘ not the largest"
+            where = "surface" if r["first_bond_defect_is_surface"] else "internal"
+            return (f"<b>{f['spec'].replace('SN_', '')}</b> · {r['sigma_max_MPa']} MPa · "
+                    f"first bond at a {r['first_bond_defect_sqrt_area_um']:.0f} µm {where} "
+                    f"defect; largest is {r['dominant_sqrt_area_um']:.0f} µm · {verdict}")
 
-    n_surf = d["n_initiated_at_surface_defect"]
+        def _data(f):
+            x, y = _star_xy(f)
+            return [go.Image(source=f["src"]),
+                    go.Scatter(x=[x], y=[y], mode="markers",
+                               marker=dict(symbol="star", size=20, color="#FFD54F",
+                                           line=dict(color="#7A1F12", width=2)),
+                               name="first bond to break", hoverinfo="name")]
+
+        f0 = frames[0]
+        fig = go.Figure(data=_data(f0))
+        fig.frames = [go.Frame(data=_data(f), name=f["spec"].replace("SN_", ""),
+                               layout=go.Layout(title_text=_title(f))) for f in frames]
+        fig.update_layout(title=dict(text=_title(f0), x=0.0, font=dict(size=13)),
+                          height=360, margin=dict(l=0, r=0, t=40, b=95),
+                          xaxis=dict(visible=False, range=[0, max(f["w"] for f in frames)]),
+                          yaxis=dict(visible=False, scaleanchor="x",
+                                     range=[max(f["h"] for f in frames), 0]),
+                          showlegend=False)
+        play(fig, frame_ms=1800, transition_ms=0, slider_prefix="section ")
+        st.plotly_chart(fig, width="stretch")
+        st.caption(
+            "Each section with the load axis running left to right. Grey: 316H. Teal: "
+            "defects, with the largest in dark teal. Orange: damage at the end of the run. "
+            "Gold star: the first bond to break. Press Play to step through all fourteen.")
+
+    rows = d["rows"]
+    df = pd.DataFrame([{
+        "specimen": r["specimen"].replace("SN_", ""),
+        "σmax (MPa)": r["sigma_max_MPa"],
+        "defects in section": r["n_defects"],
+        "largest (µm)": r["dominant_sqrt_area_um"],
+        "first bond at (µm)": r["first_bond_defect_sqrt_area_um"],
+        "surface?": "yes" if r["first_bond_defect_is_surface"] else "no",
+        "at largest?": "yes" if r["initiated_at_dominant"] else "no",
+        "at most severe (ΔK)?": "yes" if r["initiated_at_most_severe"] else "no",
+    } for r in rows])
+    st.dataframe(df, width='stretch', hide_index=True)
+
+    n_surf = sum(1 for r in rows if r["first_bond_defect_is_surface"])
     st.warning(
         f"**Reported as found.** Size alone does not predict where the crack starts. "
-        f"{n_surf} of {n} sections initiated at a **surface-connected** defect, which "
-        f"Murakami's geometry factors make "
-        f"{(d['Y_surface'] / d['Y_internal']) ** 2:.2f}× as severe per unit area as an "
-        f"enclosed one — enough for a small surface flaw to beat a much larger buried "
-        f"one. In SN_P017 a 268 µm surface defect initiated ahead of the 947 µm "
-        f"enclosed defect that dominates that section by size. Two earlier studies "
-        f"agree in direction (69% for the slit realisations, 25% for randomly "
-        f"positioned ones), so this is a finding about the **severity criterion**, not "
-        f"about the segmentation that measures the defects or the life model that "
-        f"consumes their size — neither of which depends on which defect cracks first.",
-        icon="🔍",
-    )
+        f"{n_surf} of {n} sections started at a **surface** defect, which Murakami's "
+        f"geometry factors make {(0.65 / 0.50) ** 2:.2f}× as severe per unit area as an "
+        "enclosed one: enough for a small surface flaw to beat a much larger buried one. "
+        f"Weighting by that factor lifts the count only to {d['hits_by_severity']} of {n}, "
+        "so neighbouring defects matter too. This is a finding about the **severity "
+        "criterion**, not about the segmentation that measures the defects or the life "
+        "model that uses their size.",
+        icon="🔍")

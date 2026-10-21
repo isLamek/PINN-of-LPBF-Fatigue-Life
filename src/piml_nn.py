@@ -75,8 +75,19 @@ torch.manual_seed(20260917)
 
 # ============================================================== the network
 class FatigueLifePINN(nn.Module):
-    """log10(Nf) = f(ln(ds), ln(sqrt_area), flatness). Deliberately tiny: 3 inputs,
-    one hidden layer of 8 units, ~40 parameters, trained on order-10 specimens."""
+    """log10(Nf) = f(ln(ds), ln(sqrt_area), flatness).
+
+    Deliberately small: 3 inputs, TWO hidden layers of 8 units with tanh, one linear
+    output. That is 3*8+8 = 32, then 8*8+8 = 72, then 8*1+1 = 9, so 113 parameters,
+    which is the count reported for model C1 in the comparison ladder. An earlier
+    version of this docstring said one hidden layer and about 40 parameters, which
+    described neither the architecture built below nor the figure quoted in the results.
+
+    113 parameters fitted to 14 specimens is of course badly over-parameterised, and the
+    leave-one-out result says so: it does not beat the one-constant physics model. The
+    physics residual in the loss is what keeps it from being meaningless rather than what
+    makes it competitive.
+    """
 
     def __init__(self, n_hidden: int = 8):
         super().__init__()
@@ -246,6 +257,14 @@ if __name__ == "__main__":
     for t in r["table"]:
         print(f"{t['lam']:8.3f} {t['b_s_resid_rms']:15.4f} {t['b_a_resid_rms']:15.4f} "
               f"{t['loo_rmse']:15.4f}")
+    # written out so the app reads the table rather than carrying typed-in numbers
+    import json
+    import os
+    out = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data",
+                       "comparison_model", "pinn_verification.json")
+    with open(out, "w", encoding="utf-8") as fh:
+        json.dump(r, fh, indent=1)
+    print(f"wrote {os.path.normpath(out)}")
     print("\nExpected pattern: both residual RMS columns fall as lambda increases from 0,")
     print("showing the physics term pulls the learned gradient toward the true slope;")
     print("LOO RMSE should not get materially worse, since 14 points cannot otherwise")

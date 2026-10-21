@@ -1,0 +1,19 @@
+{
+ "model": "B3",
+ "n": 14,
+ "slope": 0.9024234415220096,
+ "slope_range": [
+  0.9,
+  1.1
+ ],
+ "sigma_decades": 0.16664549059297853,
+ "interval": "+/-1.645 sigma (90%)",
+ "n_inside": 13,
+ "coverage": 0.9285714285714286,
+ "coverage_required": 0.9,
+ "slope_met": true,
+ "coverage_met": true,
+ "specimens_outside": [
+  "P045"
+ ]
+}

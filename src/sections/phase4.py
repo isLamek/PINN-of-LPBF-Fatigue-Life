@@ -9,7 +9,7 @@ import streamlit as st
 from src.data import load, splits, SY_MPA, UTS_MPA
 from src.life_integral import life_numeric, Y_SURFACE, DKTH, C_PARIS, M_PARIS
 from src.piml_nn import train_pinn, predict as pinn_predict
-from src.ui import badge
+from src.ui import badge, plain, play, thinking
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA = os.path.join(ROOT, "data", "comparison_model")
@@ -43,22 +43,31 @@ def _fit_pinn():
 
 
 def render():
-    st.title("Phase 4 · Closed-loop validation & physics-informed comparison")
+    st.title("Phase 4 · Test the prediction")
     badge("REAL RESULTS", "real")
-    badge("BAYESIAN UPDATING STILL PREVIEW", "pending")
-
-    st.markdown(
-        "**This page is the direct answer to the supervisor's request** for a "
-        "physics-informed comparison model. It has two arms: a **hard-physics** "
-        "sign-constrained regression (`comparison_model`) and a new **soft-"
-        "physics** neural network trained with a hybrid data + PDE-residual "
-        "loss. Both are benchmarked against a pure-statistics ladder and a "
-        "zero-parameter physics baseline, leave-one-out, on the same specimens."
-    )
 
     res = json.load(open(os.path.join(DATA, "piml_results.json")))
     comp = json.load(open(os.path.join(DATA, "comparison_results.json")))
     fail = json.load(open(os.path.join(DATA, "failure_criterion.json")))
+    lad = {r["model"].split()[0]: r for r in comp["ladder"]}
+    pa = comp["phase4"]["log10_N_pathA"]["factor"]
+    thinking(
+        "Is the physics worth it? Would plain curve-fitting, or a neural network, do as "
+        "well?",
+        "A ladder of statistical models with more and more free parameters, a "
+        "sign-constrained physics regression, and a physics-informed neural network "
+        "(PINN), all judged leave-one-out on the same cylinders.",
+        "Each fitting method first recovers known exponents from synthetic data; no model "
+        "is ever scored on a cylinder it was fitted to.",
+        f"The crack-growth prediction reaches {pa:.2f}× with nothing fitted to the fatigue "
+        f"data. The best statistical fit needs {lad['B5']['params']} parameters for "
+        f"{lad['B5']['loo_factor']:.2f}×; the PINN, {lad['C1']['params']}, gets "
+        f"{lad['C1']['loo_factor']:.2f}×.",
+        "Measuring the defect does the work that fitting cannot. The physics earns its "
+        "place.")
+    plain("<b>Leave-one-out, in one sentence.</b> To score a model on a cylinder, fit it "
+          "to all the other cylinders, predict the one left out, and repeat for every "
+          "cylinder, so no prediction is ever made by a model that has seen the answer.")
 
     st.divider()
     st.subheader("Arm 1 — hard physics: a sign-constrained regression")
@@ -133,7 +142,37 @@ def render():
     def _highlight(row):
         return ["background-color: #FBE9E7"] * len(row) if row["model"].startswith("C1") else [""] * len(row)
 
-    st.dataframe(df.style.apply(_highlight, axis=1), width='stretch', hide_index=True)
+    # the ladder, climbed one rung at a time, against the physics prediction
+    order = sorted(comp["ladder"], key=lambda r: (r["params"], r["model"]))
+    names = [r["model"].split("  ")[0].strip() + " · " + r["model"].split("  ", 1)[-1].strip()
+             for r in order]
+
+    def rung(k):
+        shown = order[:k + 1]
+        cols = ["#5A2A82" if r["model"].startswith("C1") else GREY for r in shown]
+        return [go.Bar(y=names[:k + 1], x=[r["loo_factor"] for r in shown], orientation="h",
+                       marker_color=cols, text=[f"{r['loo_factor']:.2f}× · {r['params']} p"
+                                                for r in shown],
+                       textposition="outside", cliponaxis=False)]
+
+    figl = go.Figure(data=rung(0))
+    figl.frames = [go.Frame(data=rung(k), name=order[k]["model"].split()[0])
+                   for k in range(len(order))]
+    figl.add_vline(x=pa, line_color=ACCENT, line_width=3,
+                   annotation_text=f"crack-growth physics {pa:.2f}×, nothing fitted",
+                   annotation_position="top right")
+    figl.update_layout(xaxis=dict(range=[1.0, max(r["loo_factor"] for r in order) * 1.25],
+                                  title="typical leave-one-out error (×), lower is better"),
+                       yaxis=dict(categoryorder="array", categoryarray=names[::-1],
+                                  range=[-0.5, len(names) - 0.5]),
+                       height=470, margin=dict(t=30, b=110, l=10), showlegend=False)
+    play(figl, frame_ms=650, transition_ms=250, slider_prefix="rung ")
+    st.plotly_chart(figl, width="stretch")
+    st.caption("Press Play to climb the ladder, from the simplest fit to the PINN (purple). "
+               "Each label gives the error and the number of free parameters. The red line "
+               "is the crack-growth prediction, which fits nothing to these lives.")
+    with st.expander("The ladder as a table"):
+        st.dataframe(df.style.apply(_highlight, axis=1), width='stretch', hide_index=True)
     st.caption(
         "A = all 41 gauge failures (stress + bulk porosity only). B = the 14 "
         "with a measured defect (adds Murakami √area). **C1 = the new PINN**, "
@@ -206,16 +245,23 @@ def render():
             "physics-loss weight λ rises from 0 the network's *learned gradient* "
             "should move toward the true slope."
         )
-        st.markdown(
-            "| λ | stress-slope residual RMS | defect-slope residual RMS | LOO RMSE (decades) |\n"
-            "|---:|---:|---:|---:|\n"
-            "| 0.00 | 0.9596 | 0.3632 | 0.543 |\n"
-            "| 0.01 | 0.2288 | 0.3495 | 0.493 |\n"
-            "| 0.10 | 0.0372 | 0.1111 | 0.592 |\n"
-            "| 1.00 | 0.0107 | 0.0145 | 0.683 |\n"
-            "| 10.00 | 0.0063 | 0.0069 | 0.459 |"
-        )
-        st.caption("λ = 10 was chosen from this table before the real fit was ever run.")
+        pv_path = os.path.join(DATA, "pinn_verification.json")
+        if os.path.exists(pv_path):
+            pv = json.load(open(pv_path, encoding="utf-8"))
+            st.dataframe(pd.DataFrame(pv["table"]).rename(columns={
+                "lam": "λ", "b_s_resid_rms": "stress-slope residual RMS",
+                "b_a_resid_rms": "defect-slope residual RMS",
+                "loo_rmse": "LOO RMSE (decades)"}).style.format({
+                    "λ": "{:.2f}", "stress-slope residual RMS": "{:.4f}",
+                    "defect-slope residual RMS": "{:.4f}", "LOO RMSE (decades)": "{:.3f}"}),
+                width="stretch", hide_index=True)
+            st.caption("λ = 10 was chosen from this table before the real fit was ever "
+                       "run. Source: data/comparison_model/pinn_verification.json, written "
+                       "by `python -m src.piml_nn`.")
+        else:
+            badge("NOT YET GENERATED", "pending")
+            st.caption("Run `python -m src.piml_nn` to write "
+                       "data/comparison_model/pinn_verification.json.")
 
     # ------------------------------------------------------------ fig3 (live)
     st.subheader("Failure criterion: what ends the part")
