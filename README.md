@@ -2,8 +2,7 @@
 
 A Streamlit app that explains, and shows the evidence for, *Mathematical Modelling of
 Fatigue Life of Laser Powder Bed Fusion Components* (Lamek S. Indongo, BSc Hons
-Mechanical Engineering, UNAM; supervisor Assoc. Prof. Albert Shikongo, co-supervisor
-Dr. Surendra Kumar Saini). It was first built for the supervisor's request for a
+Mechanical Engineering, UNAM). It was first built in response to a request for a
 **physics-informed machine learning (PIML) comparison model**, and now walks a reader
 through the whole method.
 

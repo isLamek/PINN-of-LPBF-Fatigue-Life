@@ -1,5 +1,5 @@
-"""The opening page: the question, why it matters, the idea, and one real cylinder
-followed through the whole method. Every number is read from data/ at render time."""
+"""The opening page: the question, the evidence that it matters, the method, one real
+cylinder followed through it, and the results. Every number is read from data/."""
 import json
 import os
 
@@ -10,7 +10,7 @@ import streamlit as st
 
 from src import ct_viewer as cv
 from src.data import GAUGE_ND, GAUGE_SA, STUDY_METRICS, load
-from src.ui import ACCENT, GREEN, GREY, NAVY, TITLE, go_to, plain
+from src.ui import GREY, MUTED, NAVY, RED, TITLE, go_to, note, show
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DATA = os.path.join(ROOT, "data")
@@ -26,171 +26,123 @@ def render():
     rows = load()
     cmp_d = _json("comparison_model", "comparison_results.json") or {}
     h2 = _json("phase2_peridynamics", "h2_first_bond.json")
+    h4 = _json("phase4_validation", "h4_calibration.json")
+    lad = {r["model"].split()[0]: r for r in cmp_d.get("ladder", [])}
     path_a = cmp_d.get("phase4", {}).get("log10_N_pathA", {}).get("factor")
     p4 = pd.read_csv(os.path.join(DATA, "phase4_validation", "phase4_error_isolation.csv"))
 
-    st.markdown(f"## {TITLE}")
+    st.markdown(f"# {TITLE}")
+    st.markdown('<div class="byline">Lamek Shali Indongo, BSc (Hons) Mechanical '
+                'Engineering, University of Namibia, 2026</div>', unsafe_allow_html=True)
     st.markdown(
-        "#### Can a CT scan of one metal 3D-printed part tell you how long *that* part "
-        "will survive repeated loading?")
-    plain(
-        "<b>In one paragraph.</b> Metal 3D printing (laser powder bed fusion) leaves tiny "
-        "holes inside every part. Under repeated loading, cracks start at those holes, so "
-        "two parts printed the same way can last very different numbers of cycles. Today "
-        "the safe life is set for a whole batch. This project measures the holes in one "
-        "part's own X-ray CT scan and predicts that part's own fatigue life, with its "
-        "uncertainty, and checks the prediction against real fatigue tests.")
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Defects found by the AI", f"Dice {STUDY_METRICS['Dice']:.3f}",
-              help="5-fold cross-validated agreement with the reference defect labels; "
-                   "the criterion was 0.80.")
-    if path_a:
-        c2.metric("Life predicted to within", f"{path_a:.2f}×",
-                  help="Typical error over the 14 held-out cylinders, with nothing "
-                       "fitted to the fatigue lives.")
-    if h2:
-        c3.metric("Crack starts at the biggest defect",
-                  f"{h2['hits_by_area']} of {h2['n']} sections",
-                  help="Hypothesis 2 asked for 90%. A negative result, reported as found.")
+        "Metal parts made by laser powder bed fusion contain small internal defects. "
+        "Fatigue cracks start at them, so parts printed the same way can last very "
+        "different numbers of load cycles, and today a single safety factor covers the "
+        "whole batch. This work predicts the fatigue life of an individual part from the "
+        "defects measured in its own X-ray CT scan, states the uncertainty, and tests the "
+        "prediction against real fatigue tests.")
 
     # ------------------------------------------------------------- the problem
-    st.divider()
-    st.subheader("The problem, in the measured data")
-    fail = [r for r in rows if not r["runout"]]
+    st.markdown("## The problem in the measured data")
     fig = go.Figure()
-    rng = np.random.default_rng(3)
-    for s, col in ((300, NAVY), (450, ACCENT)):
-        pts = [r for r in rows if abs(r["smax"] - s) < 1]
-        y = [r["Nf"] for r in pts]
-        x = s + rng.uniform(-14, 14, len(pts))
+    for s, col in ((300, NAVY), (450, RED)):
+        pts = sorted((r for r in rows if abs(r["smax"] - s) < 1), key=lambda r: r["Nf"])
+        x = [s + (k / max(len(pts) - 1, 1) - 0.5) * 36 for k in range(len(pts))]
         fig.add_trace(go.Scatter(
-            x=x, y=y, mode="markers", name=f"{s} MPa",
-            marker=dict(size=10, color=col, opacity=0.8,
-                        symbol=["triangle-up" if r["runout"] else "circle" for r in pts]),
-            text=[f"{r['specimen']} · {r['Nf']:,} cycles" +
-                  (" · run-out" if r["runout"] else "") for r in pts],
-            hoverinfo="text"))
-    f450 = [r["Nf"] for r in fail if abs(r["smax"] - 450) < 1]
-    fig.add_annotation(x=470, y=np.log10(np.sqrt(min(f450) * max(f450))), yref="y",
-                       text=f"<b>{max(f450) / min(f450):.0f}× spread</b><br>same alloy,<br>"
-                            "same machine,<br>same stress", showarrow=False, xanchor="left",
-                       font=dict(size=13, color=ACCENT))
-    fig.update_layout(height=420, yaxis_type="log", yaxis_title="cycles to failure",
+            x=x, y=[r["Nf"] for r in pts], mode="markers", name=f"{s} MPa",
+            marker=dict(size=8, color=col,
+                        symbol=["triangle-up-open" if r["runout"] else "circle" for r in pts]),
+            text=[f"{r['specimen']}: {r['Nf']:,} cycles" + (", run-out" if r["runout"] else "")
+                  for r in pts], hoverinfo="text"))
+    f450 = [r["Nf"] for r in rows if abs(r["smax"] - 450) < 1 and not r["runout"]]
+    fig.update_layout(height=380, yaxis_type="log", yaxis_title="cycles to failure",
                       xaxis=dict(tickvals=[300, 450], ticktext=["300 MPa", "450 MPa"],
-                                 range=[255, 540], title="maximum stress"),
-                      legend=dict(orientation="h", y=1.08), margin=dict(t=30))
-    st.plotly_chart(fig, width="stretch")
-    st.caption(f"All {len(rows)} fatigue-tested cylinders of the ORNL dataset (Snow et al.). "
-               "Triangles are run-outs, stopped at 10 million cycles without failing.")
+                                 range=[255, 495], title="maximum stress"),
+                      showlegend=False, margin=dict(t=10))
+    show(fig)
+    st.markdown(
+        f"All {len(rows)} fatigue-tested cylinders of the Oak Ridge dataset (open "
+        f"triangles: run-outs, stopped unbroken at 10 million cycles). At 450 MPa, "
+        f"{len(f450)} nominally identical cylinders failed between {min(f450):,} and "
+        f"{max(f450):,} cycles: a **{max(f450) / min(f450):.0f}-fold** spread.")
 
-    # ------------------------------------------------------------- the idea
-    st.divider()
-    st.subheader("The idea: two arms from one defect map")
-    st.markdown("""
-<style>
-.flow{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin:8px 0 6px 0}
-.flow .n{border-radius:10px;padding:12px;font-size:.88rem;line-height:1.35;color:#fff;
- opacity:.25;animation:lit 6s infinite}
-.flow .n b{display:block;font-size:.95rem;margin-bottom:4px}
-.n1{background:#1F4E79;animation-delay:0s!important}
-.n2{background:#1F4E79;animation-delay:1.2s!important}
-.n3{background:#B5473A;animation-delay:2.4s!important}
-.n4{background:#2E7D32;animation-delay:3.6s!important}
-.arm{grid-column:span 4;background:#F4F1EC;border:1px dashed #8A9096;border-radius:10px;
- padding:10px 12px;font-size:.88rem;opacity:.35;animation:lit 6s infinite;animation-delay:2.4s}
-@keyframes lit{0%{opacity:.25}8%{opacity:1}60%{opacity:1}75%{opacity:.25}100%{opacity:.25}}
-</style>
-<div class="flow">
- <div class="n n1"><b>1 · Find the defects</b>An AI (nnU-Net) marks every hole in every CT
- slice of the part.</div>
- <div class="n n2"><b>2 · Measure them</b>Each hole becomes one number: √area, the size
- fracture mechanics uses. The largest governs.</div>
- <div class="n n3"><b>3 · Predict the life</b>A crack-growth law grows a crack from the
- governing hole to collapse: cycles to failure, with its uncertainty.</div>
- <div class="n n4"><b>4 · Test the prediction</b>Every prediction is made without seeing that
- part's result, then compared with the real fatigue test.</div>
- <div class="arm"><b>The second arm.</b> The same defect map also feeds a peridynamic crack
- model, which shows <i>where</i> a crack starts and the path it takes. It answers a different
- question; it is <b>not</b> where the life number comes from.</div>
-</div>""", unsafe_allow_html=True)
+    # ------------------------------------------------------------- the method
+    st.markdown("## The method")
+    fw = os.path.join(ROOT, "assets", "framework_slide.png")
+    if os.path.exists(fw):
+        st.image(fw, width="stretch")
+    st.markdown(
+        "One defect map feeds two arms. The **life arm** (navy) takes the size of the "
+        "largest defect into a crack-growth integral and gives the fatigue life with its "
+        "uncertainty. The **crack-path arm** (red) is a peridynamic model of the measured "
+        "section; it shows where the crack starts and which way it runs, and is not used as "
+        "a life. Every step is checked against a known answer before it touches measured "
+        "data.")
 
     # ------------------------------------------------------------- one cylinder
-    st.divider()
-    st.subheader(f"Follow one real cylinder through the method: {SPEC}")
+    st.markdown(f"## One cylinder, from scan to life: {SPEC}")
     rec = {r["specimen"]: r for r in rows}[SPEC]
     pr = p4[p4["cylinder"] == SPEC].iloc[0]
-    pred = 10 ** float(pr["log10_N_pathA"])
-    meas = rec["Nf"]
+    pred, meas = 10 ** float(pr["log10_N_pathA"]), rec["Nf"]
     sa_net = float(pr["largest_sqrt_area_um_ai_gauge"])
     h2row = next((r for r in h2["rows"] if r["specimen"] == f"SN_{SPEC}"), None) if h2 else None
-
-    t1, t2, t3, t4, t5 = st.tabs(["① The scan", "② The defects", "③ The load",
-                                  "④ The prediction", "⑤ Where the crack starts"])
-    with t1:
-        a, b = st.columns([1, 1])
-        zs = cv.list_slices(f"SN_{SPEC}")
-        if zs:
-            z = zs[len(zs) // 2]
-            ov = cv.composite_slice(f"SN_{SPEC}", z)
-            ct = cv.load_ct_slice(f"SN_{SPEC}", z)
-            a.image((ct * 255).astype("uint8"), caption="Raw X-ray CT slice", width="stretch")
-            b.image(ov, caption="Defects the AI found, in red", width="stretch")
-        st.markdown(f"Cylinder **{SPEC}** is one of the 14 held out from all training. "
-                    "Its CT scan is a stack of slices like this one through the build.")
-    with t2:
-        st.markdown(
-            f"Inside the machined gauge the AI found **{GAUGE_ND[SPEC]:.0f} defects**. "
-            f"Each is reduced to √area, the square root of its area seen along the load. "
-            f"The largest, the **governing defect**, measures **{sa_net:,.0f} µm** "
-            f"(network) against {GAUGE_SA[SPEC]:,} µm in the reference labels.")
-        plain("<b>Why only the largest?</b> A fatigue crack is a race. The largest flaw "
-              "concentrates stress the most, so its crack usually gets going first and "
-              "wins. Step ⑤ tests whether that is really true.")
-    with t3:
-        ds = rec["ds"]
-        dk = 0.65 * ds * np.sqrt(np.pi * sa_net * 1e-6)
-        st.markdown(
-            f"{SPEC} was tested at **σmax = {rec['smax']:.0f} MPa**, stress ratio "
-            f"R = {rec['R']:.1f}, so each cycle swings the stress by **Δσ = {ds:.0f} MPa**.")
-        st.latex(rf"\Delta K = Y\,\Delta\sigma\sqrt{{\pi\,a_0}} = 0.65 \times {ds:.0f}"
-                 rf"\times\sqrt{{\pi \times {sa_net / 1000:.3f}\times10^{{-3}}\,\text{{m}}}} "
-                 rf"= {dk:.1f}\ \text{{MPa}}\sqrt{{\text{{m}}}}")
-        st.caption("ΔK, the stress intensity range, is the driving force on a crack. "
-                   "Y = 0.65 is Murakami's factor for a defect at the surface.")
-    with t4:
-        cc1, cc2, cc3 = st.columns(3)
-        cc1.metric("Predicted life", f"{pred:,.0f} cycles",
-                   help="Path A: the calibrated crack-growth integral, leave-one-out.")
-        cc2.metric("Measured life", f"{meas:,.0f} cycles")
-        cc3.metric("Predicted ÷ measured", f"{pred / meas:.2f}")
-        st.markdown(
-            "The crack-growth law is integrated from the governing defect to the depth at "
-            "which the remaining section collapses, with literature constants and nothing "
-            "fitted to any measured life, so this prediction owes nothing to the result it "
-            "is compared with.")
-        go_to("phase3", "See the crack grow, and every cylinder's prediction →")
-    with t5:
-        if h2row:
-            st.markdown(
-                f"The peridynamic model of {SPEC}'s measured section breaks its **first "
-                f"bond** at a **{h2row['first_bond_defect_sqrt_area_um']:.0f} µm defect "
-                f"at the surface**, not at the {h2row['dominant_sqrt_area_um']:.0f} µm "
-                "internal defect that dominates the section by size. The crack that then "
-                "grows to failure does start at the large defect.")
-            plain("<b>So size is not the whole story.</b> A small flaw at the surface can "
-                  "out-rank a large buried one. Across all 14 sections the crack starts "
-                  f"at the largest defect in only {h2['hits_by_area']}, short of the 90% "
-                  "the hypothesis required. That is reported as found.")
-        go_to("phase2", "See all fourteen sections →")
-
-    # ------------------------------------------------------------- reading guide
-    st.divider()
-    st.subheader("How to read this app")
+    a, b = st.columns(2, gap="medium")
+    zs = cv.list_slices(f"SN_{SPEC}")
+    if zs:
+        z = zs[len(zs) // 2]
+        a.image((cv.load_ct_slice(f"SN_{SPEC}", z) * 255).astype("uint8"),
+                caption="X-ray CT slice", width="stretch")
+        b.image(cv.composite_slice(f"SN_{SPEC}", z),
+                caption="Defects found by the network, in red", width="stretch")
+    ds = rec["ds"]
+    dk = 0.65 * ds * np.sqrt(np.pi * sa_net * 1e-6)
     st.markdown(
-        "Each phase opens with the same five boxes: **the question** it asks, **how** it "
-        "answers it, **the check** made against a known answer before the method was "
-        "trusted, **what we found**, and **what it means**. Every number on every page is "
-        "read from the project's result files when the page loads; nothing is typed in "
-        "or recomputed for display. Negative results are shown as they came out.")
-    go_to("phase1", "Start with Phase 1 →")
+        f"1. **Scan.** {SPEC} is one of the 14 cylinders held out from all training.\n"
+        f"2. **Defects.** The network finds {GAUGE_ND[SPEC]:.0f} defects in the gauge; the "
+        f"largest measures √area = **{sa_net:,.0f} µm** (reference labels: "
+        f"{GAUGE_SA[SPEC]:,} µm).\n"
+        f"3. **Load.** Tested at {rec['smax']:.0f} MPa and R = {rec['R']:.1f}, so "
+        f"Δσ = {ds:.0f} MPa and the driving force at that defect is "
+        f"ΔK = 0.65 × {ds:.0f} × √(π × {sa_net / 1000:.3f} mm) = **{dk:.1f} MPa√m**.\n"
+        f"4. **Life.** Predicted **{pred:,.0f}** cycles against **{meas:,}** measured "
+        f"(ratio {pred / meas:.2f}), with nothing fitted to any measured life.\n" +
+        (f"5. **Crack start.** The first bond breaks at a "
+         f"{h2row['first_bond_defect_sqrt_area_um']:.0f} µm surface defect, not at the "
+         f"{h2row['dominant_sqrt_area_um']:.0f} µm internal one that later carries the "
+         "crack.\n" if h2row else ""))
+
+    # ------------------------------------------------------------- results
+    st.markdown("## Results against the hypotheses")
+    res = []
+    dice = STUDY_METRICS["Dice"]
+    res.append(("H1  Segmentation accuracy", "mean Dice ≥ 0.80", f"{dice:.3f}",
+                "met" if dice >= 0.80 else "not met"))
+    if h2:
+        res.append(("H2  Crack initiation site", "≥ 90% start at the largest defect",
+                    f"{h2['hits_by_area']} of {h2['n']} ({h2['fraction_by_area']:.0%})",
+                    "met" if h2["fraction_by_area"] >= h2["criterion"] else "not met"))
+    bf = _json("phase_mc_bayesian", "bayesian_results.json")
+    if bf:
+        r = bf["verify_recovery"]
+        step = next((i for i, x in enumerate(r["history"], 1)
+                     if abs(x["Nf_mean"] - r["Nf_true"]) / r["Nf_true"] <= 0.20), None)
+        ess = min(x["ess"] for x in r["history"])
+        res.append(("H3  Bayesian convergence", "within 20% by inspection 3; ESS ≥ 250",
+                    f"inspection {step}; ESS ≥ {ess:,.0f}",
+                    "met" if step and step <= 3 and ess >= 250 else "partly met"))
+    if h4:
+        res.append(("H4  Predictive calibration", "≥ 90% inside; slope 0.90–1.10",
+                    f"{h4['coverage']:.1%}; {h4['slope']:.3f}",
+                    "met" if h4["slope_met"] and h4["coverage_met"] else "not met"))
+    st.dataframe(pd.DataFrame(res, columns=["Hypothesis", "Criterion", "Result", "Outcome"]),
+                 hide_index=True, width="stretch")
+    if path_a and "B5" in lad and "C1" in lad:
+        st.markdown(
+            f"The life prediction is within **{path_a:.2f}×** of the measured lives of the "
+            f"14 held-out cylinders with nothing fitted to them. The best statistical fit "
+            f"needs {lad['B5']['params']} parameters for {lad['B5']['loo_factor']:.2f}×, "
+            f"and a physics-informed neural network {lad['C1']['params']} parameters for "
+            f"{lad['C1']['loo_factor']:.2f}×.")
+    note("Every number on these pages is read from the project's result files when the "
+         "page loads. Negative results are reported as they came out.")
+    go_to("phase1", "Continue to Phase 1: finding the defects")

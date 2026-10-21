@@ -10,7 +10,7 @@ from PIL import Image
 
 from src import ct_viewer as cv
 from src.data import FOLD_DICE, HELDOUT_SIZE_R2, STUDY_METRICS
-from src.ui import ACCENT, GREY, badge, plain, play, thinking
+from src.ui import GREY, NAVY, RED, finding, note, play, show, spec
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SPLIT_CSV = os.path.join(ROOT, "data", "00_docs", "Appendix_A_train_test_split.csv")
@@ -51,32 +51,33 @@ def _split_counts():
 
 
 def render():
-    st.title("Phase 1 · Find the defects")
-    badge("REAL RESULTS", "real")
+    st.title("Phase 1: finding the defects")
     n_all, sp = _split_counts()
-    thinking(
-        "Where are the holes inside this part, and how big is each one?",
-        "An nnU-Net v2 network labels every pixel of every CT slice as metal or defect.",
-        f"5-fold cross-validation, and a size check on {sp.get('test', 0)} cylinders held "
-        "out from all training.",
-        f"Mean Dice {STUDY_METRICS['Dice']:.3f}, above the 0.80 criterion. "
-        f"Held-out defect size R² = {HELDOUT_SIZE_R2:.3f}.",
-        "The defect map that every later phase uses can be trusted. Hypothesis H1 is "
-        "supported.")
-    plain("<b>What is Dice?</b> It measures overlap between the AI's defect pixels and "
-          "the reference labels: 1 is perfect, 0 is no overlap. Defects fill a tiny "
-          "fraction of each image, which makes Dice harsh, so 0.80 already means close "
-          "agreement.")
+    spec(
+        r"A network $f_\theta$ maps a CT slice $x$ to a defect probability per pixel, "
+        r"fitted by empirical risk minimisation, "
+        r"$\theta^{*}=\arg\min_\theta \tfrac{1}{N}\sum_i \mathcal{L}\big(f_\theta(x_i),y_i\big)$, "
+        r"with $\mathcal{L}$ the sum of Dice and cross-entropy losses. Agreement is scored by "
+        r"$\mathrm{Dice}=2|P\cap G|/(|P|+|G|)$.",
+        "nnU-Net v2, two-dimensional, trained 200 epochs on 16-bit slices (patch 768 × 768, "
+        "batch 1). Every defect in the resulting mask is isolated and sized as √area.",
+        f"Five-fold cross-validation (Dice {min(FOLD_DICE):.3f} to {max(FOLD_DICE):.3f} per "
+        f"fold), and the governing defect size on {sp.get('test', 0)} cylinders never seen "
+        f"in training against the reference labels: R² = {HELDOUT_SIZE_R2:.3f}.",
+        f"Mean Dice **{STUDY_METRICS['Dice']:.3f}**: the 0.80 criterion of H1 is met.")
+    note("Dice measures the overlap between the predicted defect pixels and the reference "
+         "labels, from 0 to 1. Defects fill a tiny fraction of each slice, which makes "
+         "Dice a harsh score, so 0.80 already means close agreement.")
 
     # ---------------------------------------------------------------- animated stack
-    st.subheader("Watch the AI work through a cylinder, slice by slice")
+    st.markdown("## The network on a held-out cylinder")
     specs = cv.available_specimens()
     if not specs:
-        st.warning("No CT slice data found in data/ct_slices/.", icon="⚠️")
+        finding("No CT slice data found in data/ct_slices/.")
     else:
-        spec = st.selectbox("Specimen", specs, format_func=lambda s: SPEC_LABELS.get(s, s),
+        sp_ = st.selectbox("Specimen", specs, format_func=lambda s: SPEC_LABELS.get(s, s),
                             key="p1_spec")
-        frames = _stack_frames(spec)
+        frames = _stack_frames(sp_)
         if frames:
             z0, src0, _ = frames[0]
             fig = go.Figure(go.Image(source=src0))
@@ -84,58 +85,58 @@ def render():
                           for z, s, _ in frames]
             fig.update_layout(height=420, margin=dict(l=0, r=0, t=30, b=90),
                               xaxis=dict(visible=False), yaxis=dict(visible=False),
-                              title=dict(text="raw CT  ·  defects found by the AI (red)",
+                              title=dict(text="Raw CT (left) and the defects the network finds (right, red)",
                                          x=0.5, font=dict(size=13)))
             play(fig, frame_ms=250, transition_ms=0, slider_prefix="slice ")
-            st.plotly_chart(fig, width="stretch")
+            show(fig)
             zs = [z for z, _, _ in frames]
             px_ = [n for _, _, n in frames]
             st.caption(
-                f"{len(frames)} slices of {spec.replace('SN_', '')}, z{zs[0]:04d} to "
+                f"{len(frames)} slices of {sp_.replace('SN_', '')}, z{zs[0]:04d} to "
                 f"z{zs[-1]:04d}. Press Play: defects appear and disappear as the slice "
-                f"passes through them. The slice with the most defect pixels is "
+                f"passes through them; it plays on its own and can be paused. The slice with the "
+                f"most defect pixels is "
                 f"z{zs[int(np.argmax(px_))]:04d}.")
 
     # ---------------------------------------------------------------- the check
-    st.divider()
-    st.subheader("The check: does it hold on data it has never seen?")
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Dice (5-fold mean)", f"{STUDY_METRICS['Dice']:.3f}")
-    c2.metric("Precision", f"{STUDY_METRICS['Precision']:.3f}",
-              help="Of the pixels the AI calls defect, the share that are defect.")
-    c3.metric("Recall", f"{STUDY_METRICS['Recall']:.3f}",
-              help="Of the true defect pixels, the share the AI finds.")
-    c4.metric("IoU", f"{STUDY_METRICS['IoU']:.3f}")
+    st.markdown("## Accuracy on data it has never seen")
+    import pandas as pd
+    st.dataframe(pd.DataFrame([
+        ("Dice, five-fold mean", f"{STUDY_METRICS['Dice']:.3f}", "overlap with the reference"),
+        ("Precision", f"{STUDY_METRICS['Precision']:.3f}",
+         "share of predicted defect pixels that are defect"),
+        ("Recall", f"{STUDY_METRICS['Recall']:.3f}", "share of true defect pixels found"),
+        ("Intersection over union", f"{STUDY_METRICS['IoU']:.3f}", "a stricter overlap"),
+        ("Held-out defect size, R²", f"{HELDOUT_SIZE_R2:.3f}",
+         "governing √area on 14 unseen cylinders"),
+    ], columns=["Metric", "Value", "Meaning"]), hide_index=True, width="stretch")
 
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns(2, gap="large")
     with col1:
         mean = sum(FOLD_DICE) / len(FOLD_DICE)
         folds = [f"fold {i + 1}" for i in range(len(FOLD_DICE))]
-        fig = go.Figure(go.Bar(x=folds, y=FOLD_DICE, marker_color=GREY,
+        fig = go.Figure(go.Bar(x=folds, y=FOLD_DICE, marker_color=NAVY,
                                text=[f"{v:.3f}" for v in FOLD_DICE], textposition="outside"))
-        fig.add_hline(y=0.80, line_dash="dot", line_color=ACCENT,
+        fig.add_hline(y=0.80, line_dash="dot", line_color=RED,
                       annotation_text="criterion 0.80", annotation_position="bottom right")
-        fig.add_hline(y=mean, line_dash="dash", line_color="#1F4E79",
+        fig.add_hline(y=mean, line_dash="dash", line_color=GREY,
                       annotation_text=f"mean {mean:.3f}", annotation_position="top left")
         fig.update_layout(yaxis_range=[0.75, 0.85], yaxis_title="Dice", height=340,
                           margin=dict(t=20, b=10), title="Dice by cross-validation fold")
-        st.plotly_chart(fig, width="stretch")
+        show(fig)
         st.caption("Every fold lands close to the mean: the result does not hang on one "
                    "lucky split.")
     with col2:
         st.markdown("**Why precision above recall is the safer error**")
         st.markdown(
             f"Precision ({STUDY_METRICS['Precision']:.3f}) is above recall "
-            f"({STUDY_METRICS['Recall']:.3f}): the AI misses slightly more true defect "
+            f"({STUDY_METRICS['Recall']:.3f}): the network misses slightly more true defect "
             "pixels than it invents. The next phase only needs the **largest** defect in "
             "the gauge. Trimming the edge of a large defect barely changes its √area, "
             "while inventing a large one that is not there would change the predicted "
             "life completely.")
-        st.metric("Held-out governing defect size, R² against the reference labels",
-                  f"{HELDOUT_SIZE_R2:.3f}")
 
-    st.divider()
-    st.subheader("How the data were split")
+    st.markdown("## How the data were split")
     st.markdown(
         f"The {n_all} cylinders were split **before any training**: "
         f"**{sp.get('train', 0)} training**, **{sp.get('test', 0)} held out**, and "
