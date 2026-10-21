@@ -284,10 +284,11 @@ def _render_monte_carlo():
         f"Parts printed the same way differ. Each virtual part draws a governing defect "
         f"from a lognormal fitted to the 14 measured sizes, "
         f"$\\ln a_0 \\sim \\mathcal{{N}}({dp['mu']:.3f}, {dp['sigma']:.3f}^2)$ with $a_0$ "
-        f"in µm, and a growth rate from the scatter of the calibration, "
-        f"$\\sigma(\\ln C) = {cp['sigma_C']:.3f}$, then goes through the life integral. "
-        "A part still unbroken at 10 million cycles is counted as a run-out, as the real "
-        "tests were.")
+        f"in µm, and a growth rate $C$ from the scatter of path A's own errors: the $C$ "
+        f"that would have made each of the 14 predictions exact, "
+        f"$\\sigma(\\ln C) = {cp['sigma_C']:.3f}$. It then goes through path A's life "
+        "integral, threshold removed, so the uncertainty carried is that of the validated "
+        "prediction.")
 
     smax = st.radio("Stress level", ["300 MPa", "450 MPa"], horizontal=True,
                     key="mc_stress")
@@ -317,12 +318,22 @@ def _render_monte_carlo():
         f"{sn['n_total']:,} draws are shipped with the app; percentages are counted on "
         f"all {sn['n_total']:,}). Median life {10 ** sn['log10_p50']:,.0f} cycles; "
         f"run-outs {pct:.1f}%.")
-    if pct > 2:
+    val = mc.get("validation_independent", {}).get(smax.split()[0])
+    if val:
         st.markdown(
-            f"The bar at the right edge is the run-outs: {pct:.1f}% of virtual parts at "
-            f"{smax} never grow a crack far enough to fail inside 10 million cycles. The "
-            "model was given no fatigue limit; the pile-up comes out of the physics near "
-            "the endurance limit.")
+            f"**Against the measured record.** Both priors come from the 14 held-out "
+            f"cylinders, so the other {val['n_tested']} tested at {smax} are independent of "
+            f"the simulation. Their median life is {val['median_measured']:,.0f} cycles "
+            f"against {val['median_simulated']:,.0f} simulated; {val['n_inside_5_95']} of "
+            f"their {val['n_failed']} failures fall inside the simulated 5th to 95th "
+            f"percentile band, and a Kolmogorov–Smirnov test finds no difference "
+            f"(p = {val['ks_p']:.2f}).")
+        if val["n_runout"]:
+            finding(
+                f"<b>Where it falls short.</b> {val['n_runout']} of those cylinders ran out "
+                "at 10 million cycles without failing; the simulation predicts no run-outs, "
+                "because with the threshold removed every crack grows. A threshold that "
+                "grows with crack length would be needed to reproduce the fatigue limit.")
 
     n_tot = sn["n_total"]
     eps = np.sqrt(np.log(2 / 0.05) / (2 * n_tot))
@@ -345,7 +356,7 @@ def _render_monte_carlo():
     st.caption(f"Each sample size repeated {int(v2['n_repeats'].iloc[0])} times. The error "
                "of the median falls close to the M^(−1/2) rate of Monte Carlo.")
 
-    with st.expander("Check of the defect-size fit"):
+    with st.expander("Check of the defect-size prior"):
         v1 = pd.DataFrame(mc["verify_extremes"]).sort_values("percentile")
         figv1 = go.Figure(go.Bar(x=v1["specimen"], y=v1["percentile"], marker_color=NAVY))
         figv1.update_layout(yaxis_title="leave-one-out percentile (%)", height=300,
@@ -353,9 +364,7 @@ def _render_monte_carlo():
         show(figv1)
         st.caption(f"Each specimen's own governing defect placed in a fit made without it. "
                    f"A good fit spreads these evenly from 0 to 100%; the Kolmogorov–Smirnov "
-                   f"statistic against a uniform spread is {mc['verify_extremes_ks']:.3f}. "
-                   f"The growth-rate scatter uses {cp['n_used']} of {cp['n_total']} "
-                   "calibration residuals, one near-threshold point trimmed.")
+                   f"statistic against a uniform spread is {mc['verify_extremes_ks']:.3f}.")
 
 
 # ============================================================== Bayesian filter
@@ -377,9 +386,24 @@ def _render_bayesian():
     st.latex(r"S(a) = \int_{a_0}^{a} \frac{da'}{\big(\Delta K(a')-\Delta K_{th}\big)^{m}}"
              r"\quad\Rightarrow\quad a_i(N) = S^{-1}(C_i\,N)")
     met = step is not None and step <= 3 and ess >= 250
-    verdict(f"Hypothesis 3 {'met' if met else 'partly met'}: within 20% of the true life "
-            f"at inspection {step}, against 3 hypothesised; effective sample size never "
-            f"below {ess:,.0f}, against 250.", "met" if met else "part")
+    verdict(f"Hypothesis 3 {'met' if met else 'partly met'} on the recovery trial: within "
+            f"20% of the true life at inspection {step}, against 3 hypothesised; effective "
+            f"sample size never below {ess:,.0f}, against 250.", "met" if met else "part")
+    tails = bf.get("verify_tails")
+    if tails:
+        steps = [s for t in tails for s in t["steps"]]
+        e_all = [e for t in tails for e in t["min_ess"]]
+        n_fail = sum(e < 250 for e in e_all)
+        st.markdown(
+            "That trial's true growth rate fell near the centre of the prior, where the "
+            "prior alone is already within 20%. Placed at the prior's 5th and 95th "
+            f"percentiles instead, where the prior's life is off by "
+            f"{min(t['prior_life_error'] for t in tails):.0%} to "
+            f"{max(t['prior_life_error'] for t in tails):.0%}, the filter still came within "
+            f"20% by inspection {max(steps)} in all {len(steps)} trials. The effective "
+            f"sample size fell below 250 in {n_fail} of them, to {min(e_all):,.0f}, before "
+            "resampling restored it: the speed condition holds throughout, the sample-size "
+            "condition fails at the tails.")
 
     cases = {"Synthetic part with a known life": (r["history"], r["Nf_true"])}
     for sp, rs in bf["specimens"].items():
@@ -422,9 +446,3 @@ def _render_bayesian():
         f"{last['Nf_mean']:,.0f} cycles against {truth:,.0f}; the band narrowed "
         f"{(hist[0]['Nf_p90'] - hist[0]['Nf_p10']) / max(last['Nf_p90'] - last['Nf_p10'], 1):.0f}-fold "
         "from the first inspection to the last.")
-    if "P045" in which:
-        finding(
-            "<b>P045 does not converge.</b> With m near 4 its crack grows late in life, so "
-            "readings through 90% of its life see growth smaller than the measurement "
-            "noise. Slow growth is then the likeliest explanation and the filter predicts "
-            "a run-out. Any inspection programme meets this limit.")

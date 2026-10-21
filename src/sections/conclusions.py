@@ -64,9 +64,11 @@ def render():
                     "with an effective sample size of at least 250",
                     f"{word}: within 20% at inspection {step}; effective sample size at least "
                     f"{ess:,.0f}.", kind,
-                    "The filter converges and never degenerates, two inspections later than "
-                    "hypothesised. The early inspections fall where the crack has barely "
-                    "grown and carry little information.")
+                    "With the true growth rate placed in the tails of the prior instead, the "
+                    "filter still converges by the third inspection, but its effective "
+                    "sample size can dip below 250 before resampling restores it. The "
+                    "speed condition holds throughout; the sample-size condition fails "
+                    "where the prior is badly wrong.")
 
     h4 = _json("phase4_validation", "h4_calibration.json")
     if h4:
@@ -92,6 +94,9 @@ def render():
             f"{lad['B5']['loo_factor']:.2f}×; a physics-informed neural network with "
             f"{lad['C1']['params']} reaches {lad['C1']['loo_factor']:.2f}×. Measuring the "
             "defect does the work that fitting cannot.\n"
+            "- Propagated through the same model, the scatter in defect size and growth "
+            "rate reproduces the measured life distribution of 46 further cylinders not "
+            "used to build it.\n"
             "- Each numerical method was checked against a known answer before it was used "
             "on measured data, and a life can be followed by hand from defect size to "
             "cycles.")
@@ -99,6 +104,11 @@ def render():
          "scrapped on a batch rule, and a part with a severe one withdrawn before it fails, "
          "with the uncertainty stated rather than hidden in a safety factor.")
 
+    mc = _json("phase_mc_bayesian", "monte_carlo_results.json") or {}
+    v300 = mc.get("validation_independent", {}).get("300")
+    runout_line = (f"\n- With the threshold removed for short cracks, the model predicts no "
+                   f"run-outs, while {v300['n_runout']} of the {v300['n_tested']} independent "
+                   "cylinders at 300 MPa ran out." if v300 and v300["n_runout"] else "")
     st.markdown("## Limits")
     st.markdown(
         "- One alloy and one dataset: 316H from one machine and one powder lot, with "
@@ -108,13 +118,13 @@ def render():
         "resolution; it gives the site and the path, and the life comes from the "
         "crack-growth integral.\n"
         "- Fillet-radius failures start at a stress concentration, not a defect, and lie "
-        "outside the defect-driven model.")
+        "outside the defect-driven model." + runout_line)
 
     st.markdown("## What comes next")
     st.markdown(
         "- A severity measure with surface and interaction terms, to re-test H2.\n"
-        "- An inspection schedule weighted toward later, more informative readings, to "
-        "re-test the three-inspection criterion of H3.\n"
+        "- A threshold that grows from the short-crack to the long-crack value as the "
+        "crack lengthens, so the population model reproduces the run-outs at 300 MPa.\n"
         "- A stress-concentration model at the fillet radius, so both failure locations "
         "are covered.\n"
         "- Each specimen's own Bayesian interval for H4, in place of the residual-based "
