@@ -48,6 +48,110 @@ def _fit_pinn():
     return model, std, float(np.median(X[:, 2]))
 
 
+def _render_brief(res, pa):
+    """The physics-informed machine learning brief, item by item, with the result of
+    each item read from its result file."""
+    feats = _json(DATA, "defect_features.json")
+    phi = _json(DATA, "phi_results.json")
+    st.markdown("## The physics-informed brief, item by item")
+    st.markdown(
+        "The brief for this comparison asked for three ways of putting physics into a "
+        "data model: physical input features, a physics-constrained architecture, and a "
+        "physics-informed loss. Each was built and scored by the same leave-one-out "
+        "protocol.")
+    rows = [
+        ("Size, √area", "Measured on every defect (Phase 2)", "Drives every model"),
+        ("Shape", "Circularity and aspect ratio of the projection across the load",
+         "No measurable gain (below)"),
+        ("Location", "Ligament from the defect to the gauge surface",
+         "No measurable gain (below)"),
+        ("Interaction", "Nearest-neighbour gap; Murakami's merging rule",
+         "Merging worsens every affected prediction"),
+        ("σa(1−R), σa/UTS, σa²/2E", "Computed for every cylinder",
+         "Identical to stress here (below)"),
+        ("Constrained architecture", "φ network with sign rules in its weights (D2, E2); "
+         "sign-bounded regression (B3)", "Does not beat path A"),
+        ("Physics-informed loss", "Network penalised off the Basquin and Paris slopes (C1)",
+         f"{next((r['loo_factor'] for r in res['ladder'] if r['model'].startswith('C1')), 0):.2f}×"),
+        ("Paris crack-growth law", "Path A, literature constants", f"{pa:.2f}×, nothing fitted"),
+    ]
+    st.dataframe(pd.DataFrame(rows, columns=["Brief item", "What was built", "Outcome"]),
+                 width="stretch", hide_index=True)
+
+    col = res.get("collinearity")
+    if col:
+        dist = res.get("collinearity_distinct", {})
+        st.markdown("### Engineered stress features")
+        st.markdown(
+            f"Every cylinder was tested at R = 0.1 and at one of two stresses, so each "
+            f"engineered feature takes only {max(dist.values()) if dist else 2} distinct "
+            "values and is a fixed function of the stress amplitude. Their correlations "
+            "with σa and with each other:")
+        st.dataframe(pd.DataFrame([(c["a"], c["b"], f"{c['r']:.4f}") for c in col],
+                                  columns=["Feature", "Against", "Correlation"]),
+                     width="content", hide_index=True)
+        st.markdown("They cannot add information with this test matrix. They would on a "
+                    "dataset with varied R and more stress levels.")
+
+    if feats:
+        st.markdown("### Shape, location and interaction of the governing defect")
+        f = pd.DataFrame(feats["rows"])
+        st.dataframe(pd.DataFrame({
+            "Cylinder": f["cylinder"], "√area (µm)": f["sqrt_area_um"].round(0),
+            "Circularity": f["circularity"].round(2), "Aspect ratio": f["aspect_ratio"].round(2),
+            "Ligament to surface (µm)": f["L_surface_um"].round(0),
+            "Gap to neighbour (µm)": f["nn_gap_um"].round(0),
+            "Merged √area (µm)": f["sqrt_area_eff_um"].round(0)}),
+            width="stretch", hide_index=True)
+        u = feats["units"]
+        st.caption(
+            f"Measured on the network's gauge-cropped defect map, the same governing defect "
+            f"path A grows. Pixels are {u['dxy_um']} µm across the load, but slices were "
+            f"predicted every {u['z_spacing_um']:.0f} µm along it, so true 3-D sphericity "
+            "cannot be measured; circularity of the projection, 4πA/P², is used instead. "
+            "Every calculator was first checked on shapes with known answers.")
+        st.markdown(
+            "Murakami's rule treats two defects closer than the smaller one's √area as a "
+            "single defect. Applied here it makes every affected prediction worse. For P017 "
+            "the merged flaw exceeds the depth at which the section collapses, a life of "
+            "zero, while the single governing defect predicts its measured life almost "
+            "exactly. The 400 µm slice spacing biases the rule toward merging, but the data "
+            "favour the single defect.")
+
+    if phi:
+        st.markdown("### The correction factor φ")
+        st.markdown(
+            "φ multiplies a baseline life, N = N_base / φ. By the brief's physical "
+            "intuition it must rise with defect size and fall with circularity and with "
+            "distance from the surface. The network carries those signs in its weights: "
+            "every weight between an input and φ passes through a softplus and is "
+            "positive, and circularity and ligament enter with a minus sign. A model that "
+            "breaks a sign rule cannot be represented.")
+        st.latex(r"N = \frac{N_{\text{base}}}{\varphi(\ln\sqrt{\text{area}},\,-\Psi,\,-L)},"
+                 r"\qquad \frac{\partial \ln\varphi}{\partial z_k}\ \ge 0")
+        lab = {"D1": "φ linear, on path A", "D2": "φ network, on path A",
+               "E1": "φ linear, on stress alone", "E2": "φ network, on stress alone"}
+        t = [("Path A, nothing fitted", 0, phi["pathA_factor"])] + [
+            (lab[m["model"]], m["params"], m["loo_factor"]) for m in phi["models"]]
+        st.dataframe(pd.DataFrame([(a, b, f"{c:.3f}×") for a, b, c in t],
+                                  columns=["Model", "Fitted parameters", "Leave-one-out error"]),
+                     width="stretch", hide_index=True)
+        v = [r for r in phi["verification"] if r["wd"] == phi["weight_decay"]]
+        st.markdown(
+            "**Verification.** On synthetic lives built with a known φ, the trained "
+            "network's error in log₁₀ φ falls from "
+            + ", ".join(f"{r['rmse_log10_phi']:.3f} at n = {r['n']}" for r in v) +
+            f". Its weight decay ({phi['weight_decay']:g}) was fixed by that study before "
+            "any real fit. The sign rules hold at 2,000 random test points.")
+        finding(
+            "<b>Reported as found.</b> On the 14 cylinders, neither φ improves on path A. "
+            "Fitted to all 14, the sign-bounded linear φ sets every coefficient to zero: "
+            "once the physical signs are enforced, the data ask for no correction for "
+            "size, shape or location beyond what the crack-growth law already contains. "
+            "With 14 specimens this cannot rule such effects out; it shows they are "
+            "below what this dataset can resolve.")
+
+
 def render():
     st.title("Phase 4: validation")
     res = _json(DATA, "piml_results.json")
@@ -139,6 +243,8 @@ def render():
         f"{lad['B3']['loo_factor']:.2f}× on the same cylinders. The network, with "
         f"{lad['C1']['params']} parameters on 14 points, does no better than three. "
         f"Path A matches the best fits without fitting anything to these lives.")
+
+    _render_brief(res, pa)
 
     # ------------------------------------------------------------ H4
     pts = comp.get("points_B3") or []
