@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import streamlit as st
 
 from src import ct_viewer as cv
+from src.figstyle import H_AUX, H_MAIN, LEGEND, MEAS, PARITY, cycle_ticks, parity
 from src.ui import NAVY, finding, go_to, note, play, show, spec, verdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -102,7 +103,7 @@ def render():
         x=cat["sqrt_area_um"], y=cat["flatness"], mode="markers",
         marker=dict(size=5, color=NAVY, opacity=0.45),
         text=cat["cylinder"], hovertemplate="%{text}: √area %{x:.0f} µm, flatness %{y:.2f}"))
-    fig2.update_layout(height=360, xaxis_title="√area (µm)", yaxis_title="flatness",
+    fig2.update_layout(height=H_MAIN, xaxis_title="√area (µm)", yaxis_title="flatness",
                        xaxis_type="log")
     show(fig2)
     st.caption("Every catalogued defect by size and shape.")
@@ -122,7 +123,7 @@ def render():
             line=dict(color=NAVY), marker=dict(size=7),
             text=[f"{r['bonds_per_node']} bonds per node" for r in rows],
             hovertemplate="m = %{x}: %{y:.2f}% (%{text})"))
-        fig.update_layout(height=340, xaxis_title="horizon multiplier m = δ/Δx",
+        fig.update_layout(height=H_AUX, xaxis_title="horizon multiplier m = δ/Δx",
                           yaxis_title="error in elastic modulus (%)", yaxis_type="log")
         show(fig)
         st.markdown(

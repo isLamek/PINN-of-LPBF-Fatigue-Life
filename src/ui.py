@@ -182,9 +182,17 @@ def show(fig, height: int | None = None):
     frame_ms, trans_ms = getattr(fig, "_lpbf_timing", (500, 200))
     h = height or int(fig.layout.height or 450)
     div = f"anim_{uuid.uuid4().hex[:8]}"
-    body = fig.to_html(full_html=False, include_plotlyjs="cdn", div_id=div,
-                       auto_play=False, config={"displaylogo": False, "responsive": True},
-                       default_width="100%", default_height=f"{h}px")
+    # plotly.js from cdnjs, falling back to jsDelivr: cdn.plot.ly did not serve the
+    # version this plotly bundles, which left every animated chart blank
+    from plotly.offline import get_plotlyjs_version
+    ver = get_plotlyjs_version()
+    loader = (f'<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/{ver}/plotly.min.js">'
+              f'</script><script>window.Plotly||document.write(\'<script src="https://cdn.'
+              f'jsdelivr.net/npm/plotly.js-dist-min@{ver}/plotly.min.js"><\\/script>\')</script>')
+    body = loader + fig.to_html(full_html=False, include_plotlyjs=False, div_id=div,
+                                auto_play=False,
+                                config={"displaylogo": False, "responsive": True},
+                                default_width="100%", default_height=f"{h}px")
     script = f"""
     <script>
     (function() {{

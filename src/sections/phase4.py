@@ -9,6 +9,7 @@ import streamlit as st
 from src.data import load, splits
 from src.life_integral import life_numeric, Y_SURFACE, C_PARIS, M_PARIS
 from src.piml_nn import train_pinn, predict as pinn_predict
+from src.figstyle import H_AUX, H_MAIN, LEGEND, MEAS, PARITY, cycle_ticks, parity
 from src.ui import GREY, NAVY, RED, RULE, finding, go_to, note, play, show, spec, verdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -224,7 +225,7 @@ def render():
                                   title="typical leave-one-out error (×), lower is better"),
                        yaxis=dict(categoryorder="array", categoryarray=names[::-1],
                                   range=[-0.5, len(names) - 0.5]),
-                       height=470, margin=dict(t=30, b=110, l=10), showlegend=False)
+                       height=H_MAIN + 50, margin=dict(t=30, b=110, l=10), showlegend=False)
     play(figl, frame_ms=650, transition_ms=250, slider_prefix="model ")
     show(figl)
     st.caption("The ladder climbed from the fewest parameters to the most. A: all gauge "
@@ -255,7 +256,7 @@ def render():
                 f"({h4['coverage']:.1%}) inside the 90% interval, against 90%; slope "
                 f"{h4['slope']:.3f}, against 0.90 to 1.10.", "met" if met else "no")
         s = h4["sigma_decades"]
-        lims = [3e4, 3e6]
+        lims = list(PARITY)
         k = 10 ** (1.645 * s)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=lims, y=[l / k for l in lims], mode="lines",
@@ -274,12 +275,8 @@ def render():
             marker=dict(size=10, color=[RED if p["specimen"] in out else NAVY for p in pts]),
             customdata=[p["specimen"] for p in pts],
             hovertemplate="%{customdata}: measured %{x:,.0f}, predicted %{y:,.0f}",
-            name="held-out cylinder"))
-        fig.update_layout(xaxis_type="log", yaxis_type="log",
-                          xaxis_range=np.log10(lims), yaxis_range=np.log10(lims),
-                          xaxis_title="measured cycles to failure",
-                          yaxis_title="B3 leave-one-out prediction", height=460,
-                          legend=dict(orientation="h", y=1.1))
+            name="B3 leave-one-out prediction"))
+        parity(fig)
         show(fig)
         st.caption(f"The band is ±1.645 times the leave-one-out residual spread, "
                    f"σ = {s:.3f} decades. Red: the cylinder outside it.")
@@ -298,8 +295,8 @@ def render():
                                   name="defect slope", line=dict(color=RED)))
         fig2.update_layout(xaxis_type="log", yaxis_type="log",
                            xaxis_title="scatter in synthetic lives (decades)",
-                           yaxis_title="error in recovered slope", height=340,
-                           legend=dict(orientation="h", y=1.15))
+                           yaxis_title="error in recovered slope", height=H_AUX,
+                           legend=LEGEND)
         show(fig2)
         st.caption(f"True slopes b_s = {vr['b_s_true']:+.4f}, b_a = {vr['b_a_true']:+.4f} "
                    f"(m = {vr['m_true']}). Both errors fall in proportion to the scatter.")
@@ -388,11 +385,11 @@ def render():
     figE.add_trace(go.Scatter(x=[r["sqrt_area_gauge_um"] for r in near],
                               y=[r["Nf"] for r in near], mode="markers",
                               name="measured, Δσ within 60 MPa",
-                              marker=dict(size=9, color="#1E2A36", symbol="x")))
+                              marker=dict(size=8, color=MEAS)))
     figE.add_vline(x=sa_slider, line_color=RULE)
     figE.update_layout(xaxis_title="governing defect √area (µm)",
-                       yaxis_title="cycles to failure", yaxis_type="log", height=440,
-                       legend=dict(orientation="h", y=1.12))
+                       yaxis_title="cycles to failure", yaxis_type="log", height=H_MAIN,
+                       legend=LEGEND)
     show(figE)
 
     st.markdown("## Limits")

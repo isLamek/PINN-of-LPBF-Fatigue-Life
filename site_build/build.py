@@ -41,6 +41,7 @@ from src.data import (FOLD_DICE, GAUGE_ND, GAUGE_SA, HELDOUT_SIZE_R2,  # noqa: E
                       STUDY_METRICS, load, splits)
 from src.life_integral import C_PARIS, M_PARIS, Y_SURFACE, life_numeric  # noqa: E402
 from src.ui import GREEN, GREY, MUTED, NAVY, RED, RULE, TITLE  # noqa: E402
+from src.figstyle import H_AUX, H_MAIN, LEGEND, MEAS, PARITY, cycle_ticks, parity  # noqa: E402
 
 DATA = os.path.join(ROOT, "data")
 OUT = os.path.join(ROOT, "site")
@@ -328,7 +329,7 @@ def page_overview(ct):
 
     pg.h2("The problem in the measured data")
     fig = go.Figure()
-    for s, col in ((300, NAVY), (450, RED)):
+    for s, col in ((300, MEAS), (450, MEAS)):
         pts = sorted((r for r in rows if abs(r["smax"] - s) < 1), key=lambda r: r["Nf"])
         x = [s + (k / max(len(pts) - 1, 1) - 0.5) * 36 for k in range(len(pts))]
         fig.add_trace(go.Scatter(
@@ -338,7 +339,7 @@ def page_overview(ct):
             text=[f"{r['specimen']}: {r['Nf']:,} cycles" + (", run-out" if r["runout"] else "")
                   for r in pts], hoverinfo="text"))
     f450 = [r["Nf"] for r in rows if abs(r["smax"] - 450) < 1 and not r["runout"]]
-    fig.update_layout(height=380, yaxis_type="log", yaxis_title="cycles to failure",
+    fig.update_layout(height=H_MAIN, yaxis_type="log", yaxis_title="cycles to failure",
                       xaxis=dict(tickvals=[300, 450], ticktext=["300 MPa", "450 MPa"],
                                  range=[255, 495], title="maximum stress"),
                       showlegend=False, margin=dict(t=10))
@@ -498,7 +499,7 @@ def page_defects(ct):
                   annotation_position="bottom right")
     fig.add_hline(y=mean, line_dash="dash", line_color=GREY,
                   annotation_text=f"mean {mean:.3f}", annotation_position="top left")
-    fig.update_layout(yaxis_range=[0.75, 0.85], yaxis_title="Dice", height=320,
+    fig.update_layout(yaxis_range=[0.75, 0.85], yaxis_title="Dice", xaxis_title="cross-validation fold", height=H_AUX,
                       margin=dict(t=20, b=10))
     pg.chart(fig)
     pg.caption("Dice by cross-validation fold. Every fold lands close to the mean: the "
@@ -591,7 +592,7 @@ def page_initiation(ct):
         x=cat["sqrt_area_um"], y=cat["flatness"], mode="markers",
         marker=dict(size=5, color=NAVY, opacity=0.45), text=cat["cylinder"],
         hovertemplate="%{text}: √area %{x:.0f} µm, flatness %{y:.2f}<extra></extra>"))
-    fig2.update_layout(height=360, xaxis_title="√area (µm)", yaxis_title="flatness",
+    fig2.update_layout(height=H_MAIN, xaxis_title="√area (µm)", yaxis_title="flatness",
                        xaxis_type="log")
     pg.chart(fig2)
     pg.caption("Every catalogued defect by size and shape.")
@@ -612,7 +613,7 @@ def page_initiation(ct):
             line=dict(color=NAVY), marker=dict(size=7),
             text=[f"{r['bonds_per_node']} bonds per node" for r in rows1],
             hovertemplate="m = %{x}: %{y:.2f}% (%{text})<extra></extra>"))
-        fig.update_layout(height=340, xaxis_title="horizon multiplier m = δ/Δx",
+        fig.update_layout(height=H_AUX, xaxis_title="horizon multiplier m = δ/Δx",
                           yaxis_title="error in elastic modulus (%)", yaxis_type="log")
         pg.chart(fig)
         pg.p(f"Refining the horizon drives the error from {rows1[0]['err_pct']:.1f}% to "
@@ -764,7 +765,7 @@ def page_life():
             text=[f"{r['n_finite']} of 14 predicted to fail" for r in sw],
             hovertemplate="ΔK_th = %{x} MPa√m: %{y:.2f}× (%{text})<extra></extra>"))
         fig.add_hline(y=1, line_dash="dot", line_color=GREY)
-        fig.update_layout(height=320, yaxis_type="log", xaxis_title="threshold ΔK_th (MPa√m)",
+        fig.update_layout(height=H_AUX, yaxis_type="log", xaxis_title="threshold ΔK_th (MPa√m)",
                           yaxis_title="predicted ÷ measured (geometric mean)")
         pg.chart(fig)
         pg.caption("The bias of the held-out predictions as the threshold is raised from zero "
@@ -840,8 +841,7 @@ def page_life():
     pg.p("Path A and path B differ only in who measured the defects. Their closeness says "
          "the segmentation adds little error to the life.")
     p4s = p4.sort_values("measured").reset_index(drop=True)
-    lo = min(p4s["measured"].min(), p4s["predicted"].min()) / 2
-    hi = max(p4s["measured"].max(), p4s["predicted"].max()) * 2
+    lo, hi = PARITY
 
     def frame_data(k):
         shown, new = p4s.iloc[:k + 1], p4s.iloc[[k]]
@@ -862,11 +862,8 @@ def page_life():
     fig = go.Figure(data=frame_data(0))
     fig.frames = [go.Frame(data=frame_data(k), name=p4s.loc[k, "cylinder"])
                   for k in range(len(p4s))]
-    fig.update_layout(xaxis=dict(type="log", range=[np.log10(lo), np.log10(hi)],
-                                 title="measured cycles to failure"),
-                      yaxis=dict(type="log", range=[np.log10(lo), np.log10(hi)],
-                                 title="predicted cycles to failure"),
-                      height=500, margin=dict(t=20, b=110), legend=dict(orientation="h", y=1.06))
+    parity(fig)
+    fig.update_layout(margin=dict(t=20, b=110))
     anim(fig, 700, 200, "added ")
     pg.chart(fig)
     resid = np.log10(p4["predicted"]) - np.log10(p4["measured"])
@@ -895,38 +892,26 @@ def page_life():
     opts, blocks = "", []
     for s in ("300", "450"):
         sn = mc["sn"][s]
-        logN = np.log10(np.asarray(sn["N_samples"], float))
-        bins = np.linspace(np.floor(logN.min() * 4) / 4, 7.0 + 1e-9, 41)
-        steps = [n for n in (25, 50, 100, 200, 400, 800, 1600, len(logN)) if n <= len(logN)]
-        ymax = np.histogram(logN, bins)[0].max() * 1.15
-        centres = 0.5 * (bins[1:] + bins[:-1])
-
-        def hist_frame(n):
-            h, _ = np.histogram(logN[:n], bins)
-            return [go.Bar(x=centres, y=h, width=np.diff(bins) * 0.95, marker_color=NAVY)]
-        fig = go.Figure(data=hist_frame(steps[0]))
-        fig.frames = [go.Frame(data=hist_frame(n), name=f"{n:,} draws") for n in steps]
-        for p, label in ((sn["log10_p5"], "5th percentile"), (sn["log10_p50"], "median")):
-            fig.add_vline(x=p, line_dash="dash", line_color=GREY, annotation_text=label)
-        fig.update_layout(xaxis_title="log₁₀ cycles to failure", yaxis_title="virtual parts",
-                          yaxis_range=[0, ymax], height=400, margin=dict(t=20, b=110), bargap=0)
+        # the same figure as the Streamlit page and Figure 4.9 of the thesis: shared
+        # axis, bins and vertical scale for both stresses
+        from src.sections.phase3 import mc_figure
+        fig, n_meas = mc_figure(mc, s)
         anim(fig, 600, 300)
         fid = pg.fig_json(fig)
         opts += f'<option value="{fid}">{s} MPa</option>'
         pct = 100 * sn["n_at_runout"] / sn["n_total"]
         v = mc.get("validation_independent", {}).get(s)
-        txt = (f'<p class="caption">The distribution building up as draws arrive, '
-               f"{sn['n_total']:,} draws in all. Median life {10 ** sn['log10_p50']:,.0f} "
-               f"cycles; run-outs {pct:.1f}%.</p>")
+        txt = (f'<p class="caption">Simulated (navy) against measured (grey), same axes at '
+               f"both stresses. Median {10 ** sn['log10_p50']:,.0f} cycles; run-outs "
+               f"{pct:.1f}%.</p>")
         if v:
             txt += md(f"**Against the measured record.** Both priors come from the 14 held-out "
-                      f"cylinders, so the other {v['n_tested']} tested at {s} MPa are "
+                      f"cylinders, so the other {v['n_tested']} tested at this stress are "
                       f"independent of the simulation. Their median life is "
-                      f"{v['median_measured']:,.0f} cycles against "
-                      f"{v['median_simulated']:,.0f} simulated; {v['n_inside_5_95']} of their "
-                      f"{v['n_failed']} failures fall inside the simulated 5th to 95th "
-                      f"percentile band, and a Kolmogorov–Smirnov test finds no difference "
-                      f"(p = {v['ks_p']:.2f}).")
+                      f"{v['median_measured']:,.0f} cycles against {v['median_simulated']:,.0f} "
+                      f"simulated; {v['n_inside_5_95']} of their {v['n_failed']} failures fall "
+                      f"inside the simulated 5th to 95th percentile band, and a Kolmogorov–Smirnov "
+                      f"test finds no difference (p = {v['ks_p']:.2f}).")
             if v["n_runout"]:
                 txt += (f'<div class="finding">{md("<b>Where it falls short.</b> " + str(v["n_runout"]) + " of those cylinders ran out at 10 million cycles without failing; the simulation predicts no run-outs, because with the threshold removed every crack grows. A threshold that grows with crack length would be needed to reproduce the fatigue limit.")}</div>')
         blocks.append((fid, txt))
@@ -950,9 +935,9 @@ def page_life():
     ref = v2["rmse"].iloc[0] * np.sqrt(v2["n_samples"].iloc[0] / v2["n_samples"])
     figv2.add_trace(go.Scatter(x=v2["n_samples"], y=ref, mode="lines", name="M^(−1/2)",
                                line=dict(color=GREY, dash="dot")))
-    figv2.update_layout(xaxis_type="log", yaxis_type="log", height=300, xaxis_title="draws M",
+    figv2.update_layout(xaxis_type="log", yaxis_type="log", height=H_AUX, xaxis_title="draws M",
                         yaxis_title="RMSE of the median (decades)", margin=dict(t=10),
-                        legend=dict(orientation="h", y=1.1))
+                        legend=LEGEND)
     pg.chart(figv2)
     pg.caption(f"Each sample size repeated {int(v2['n_repeats'].iloc[0])} times. The error of "
                "the median falls close to the M^(−1/2) rate of Monte Carlo.")
@@ -960,7 +945,7 @@ def page_life():
     def prior_check():
         v1 = pd.DataFrame(mc["verify_extremes"]).sort_values("percentile")
         figv1 = go.Figure(go.Bar(x=v1["specimen"], y=v1["percentile"], marker_color=NAVY))
-        figv1.update_layout(yaxis_title="leave-one-out percentile (%)", height=300,
+        figv1.update_layout(yaxis_title="leave-one-out percentile (%)", xaxis_title="held-out cylinder", height=H_AUX,
                             yaxis_range=[0, 100], margin=dict(t=10))
         pg.chart(figv1)
         pg.caption("Each specimen's own governing defect placed in a fit made without it. A "
@@ -1018,13 +1003,13 @@ def page_life():
                                line=dict(color=NAVY, width=2.5), name="posterior mean")]
         fig = go.Figure(data=bframe(0))
         fig.frames = [go.Frame(data=bframe(k), name=f"inspection {k + 1}") for k in range(len(H))]
-        fig.add_hline(y=truth, line_dash="dash", line_color=GREEN,
+        fig.add_hline(y=truth, line_dash="dash", line_color=MEAS,
                       annotation_text="true life" if synth else "measured life")
         fig.update_layout(yaxis=dict(type="log", range=[np.log10(ylo), np.log10(yhi)],
                                      title="predicted cycles to failure"),
                           xaxis=dict(range=[0, H["N_inspection"].max() * 1.08],
                                      title="cycles inspected so far"),
-                          height=420, margin=dict(t=20, b=110), legend=dict(orientation="h", y=1.08))
+                          height=H_MAIN, margin=dict(t=20, b=110), legend=LEGEND)
         anim(fig, 1000, 300)
         fid = pg.fig_json(fig)
         opts += f'<option value="{fid}">{html.escape(name)}</option>'
@@ -1128,7 +1113,7 @@ def page_validation():
                                   title="typical leave-one-out error (×), lower is better"),
                        yaxis=dict(categoryorder="array", categoryarray=names[::-1],
                                   range=[-0.5, len(names) - 0.5], automargin=True),
-                       height=470, margin=dict(t=30, b=110, l=10), showlegend=False)
+                       height=H_MAIN + 50, margin=dict(t=30, b=110, l=10), showlegend=False)
     anim(figl, 650, 250, "model ")
     pg.chart(figl)
     pg.caption("The ladder climbed from the fewest parameters to the most. A: all gauge "
@@ -1242,7 +1227,7 @@ def page_validation():
                    f"({h4['coverage']:.1%}) inside the 90% interval, against 90%; slope "
                    f"{h4['slope']:.3f}, against 0.90 to 1.10.", "met" if met else "no")
         s = h4["sigma_decades"]
-        lims = [3e4, 3e6]
+        lims = list(PARITY)
         k = 10 ** (1.645 * s)
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=lims, y=[l / k for l in lims], mode="lines",
@@ -1260,11 +1245,8 @@ def page_validation():
             marker=dict(size=10, color=[RED if p["specimen"] in out else NAVY for p in pts]),
             customdata=[p["specimen"] for p in pts],
             hovertemplate="%{customdata}: measured %{x:,.0f}, predicted %{y:,.0f}<extra></extra>",
-            name="held-out cylinder"))
-        fig.update_layout(xaxis_type="log", yaxis_type="log", xaxis_range=np.log10(lims),
-                          yaxis_range=np.log10(lims), xaxis_title="measured cycles to failure",
-                          yaxis_title="B3 leave-one-out prediction", height=460,
-                          legend=dict(orientation="h", y=1.1))
+            name="B3 leave-one-out prediction"))
+        parity(fig)
         pg.chart(fig)
         pg.caption(f"The band is ±1.645 times the leave-one-out residual spread, σ = {s:.3f} "
                    "decades. Red: the cylinder outside it.")
@@ -1280,9 +1262,9 @@ def page_validation():
                                   name="stress slope", line=dict(color=NAVY)))
         fig2.add_trace(go.Scatter(x=tbl["scatter"], y=tbl["err_a"], mode="lines+markers",
                                   name="defect slope", line=dict(color=RED)))
-        fig2.update_layout(xaxis_type="log", yaxis_type="log", height=340,
+        fig2.update_layout(xaxis_type="log", yaxis_type="log", height=H_AUX,
                            xaxis_title="scatter in synthetic lives (decades)",
-                           yaxis_title="error in recovered slope", legend=dict(orientation="h", y=1.15))
+                           yaxis_title="error in recovered slope", legend=LEGEND)
         pg.chart(fig2)
         pg.caption(f"True slopes b_s = {vr['b_s_true']:+.4f}, b_a = {vr['b_a_true']:+.4f} "
                    f"(m = {vr['m_true']}). Both errors fall in proportion to the scatter.")

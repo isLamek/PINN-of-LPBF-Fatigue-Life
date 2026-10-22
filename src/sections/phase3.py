@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import streamlit as st
 
+from src.figstyle import H_AUX, H_MAIN, LEGEND, MEAS, PARITY, cycle_ticks, parity
 from src.ui import GREEN, GREY, NAVY, RED, RULE, finding, go_to, note, play, show, spec, verdict
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -110,7 +111,7 @@ def render():
                 text=[f"{r['n_finite']} of 14 predicted to fail" for r in sw],
                 hovertemplate="ΔK_th = %{x} MPa√m: %{y:.2f}× (%{text})"))
             fig.add_hline(y=1, line_dash="dot", line_color=GREY)
-            fig.update_layout(height=320, yaxis_type="log",
+            fig.update_layout(height=H_AUX, yaxis_type="log",
                               xaxis_title="threshold ΔK_th (MPa√m)",
                               yaxis_title="predicted ÷ measured (geometric mean)")
             show(fig)
@@ -160,8 +161,7 @@ def render():
 
     if p4 is not None:
         p4s = p4.sort_values("measured").reset_index(drop=True)
-        lo = min(p4s["measured"].min(), p4s["predicted"].min()) / 2
-        hi = max(p4s["measured"].max(), p4s["predicted"].max()) * 2
+        lo, hi = PARITY
 
         def frame_data(k):
             shown = p4s.iloc[:k + 1]
@@ -186,12 +186,8 @@ def render():
         fig = go.Figure(data=frame_data(0))
         fig.frames = [go.Frame(data=frame_data(k), name=p4s.loc[k, "cylinder"])
                       for k in range(len(p4s))]
-        fig.update_layout(xaxis=dict(type="log", range=[np.log10(lo), np.log10(hi)],
-                                     title="measured cycles to failure"),
-                          yaxis=dict(type="log", range=[np.log10(lo), np.log10(hi)],
-                                     title="predicted cycles to failure"),
-                          height=500, margin=dict(t=20, b=110),
-                          legend=dict(orientation="h", y=1.06))
+        parity(fig)
+        fig.update_layout(margin=dict(t=20, b=110))
         play(fig, frame_ms=700, transition_ms=200, slider_prefix="added ")
         show(fig)
         resid = np.log10(p4["predicted"]) - np.log10(p4["measured"])
@@ -248,7 +244,7 @@ def _render_growth(p4):
                            name=f"{N[idx[k]]:,.0f}") for k in range(len(idx))]
     fig.add_hline(y=ac, line_dash="dot", line_color=GREY, row=1, col=1,
                   annotation_text="collapse depth", annotation_position="bottom right")
-    fig.add_vline(x=meas, line_dash="dash", line_color=GREEN, row=1, col=1,
+    fig.add_vline(x=meas, line_dash="dash", line_color=MEAS, row=1, col=1,
                   annotation_text="measured life", annotation_position="top left")
     fig.update_xaxes(range=[0, max(Nf, meas) * 1.08], title="cycles", row=1, col=1)
     fig.update_yaxes(type="log", range=[np.log10(a0 * 0.8), np.log10(ac * 1.3)],
@@ -256,7 +252,7 @@ def _render_growth(p4):
     fig.update_xaxes(type="log", range=[np.log10(a0 * 0.8), np.log10(ac * 1.3)],
                      title="crack depth a (mm)", row=1, col=2)
     fig.update_yaxes(range=[0, dK.max() * 1.1], title="ΔK (MPa√m)", row=1, col=2)
-    fig.update_layout(height=430, margin=dict(t=40, b=110))
+    fig.update_layout(height=H_MAIN, margin=dict(t=40, b=110))
     play(fig, frame_ms=120, transition_ms=0, slider_prefix="cycles ")
     show(fig)
 
@@ -273,6 +269,68 @@ def _render_growth(p4):
 
 
 # ============================================================== Monte Carlo
+def independent_lives(level):
+    """Measured failures at one stress of the 46 cylinders not used to build either
+    Monte Carlo prior (the 14 held-out cylinders are left out)."""
+    from src.data import load
+    held = set(pd.read_csv(os.path.join(P4_DATA, "phase4_error_isolation.csv"))["cylinder"])
+    return [r["Nf"] for r in load()
+            if abs(r["smax"] - float(level)) < 1 and not r["runout"]
+            and r["specimen"] not in held]
+
+
+def mc_figure(mc, level):
+    """The simulated life distribution beside the measured independent lives, as in
+    Figure 4.9 of the thesis: shares of each population, bins of 0.25 decade centred on
+    multiples of 0.25, and ONE axis range and vertical scale for both stresses, so the
+    two can be read against each other. The simulated bars build up as draws arrive."""
+    width = 0.25
+    every, top = [], 0.0
+    sims = {lv: np.minimum(np.log10(np.asarray(mc["sn"][lv]["N_samples"], float)), 7.0)
+            for lv in ("300", "450")}
+    meas = {lv: np.log10(independent_lives(lv)) for lv in ("300", "450")}
+    for lv in ("300", "450"):
+        every += list(sims[lv]) + list(meas[lv])
+    lo = np.floor(min(every) * 4) / 4 - width / 2
+    hi = np.ceil(max(every) * 4) / 4 + width / 2
+    edges = np.arange(lo, hi + width / 2, width)
+    centres = 0.5 * (edges[1:] + edges[:-1])
+
+    def share(v):
+        h, _ = np.histogram(np.clip(v, lo, hi - 1e-9), edges)
+        return 100.0 * h / max(len(v), 1)
+    for lv in ("300", "450"):
+        top = max(top, share(sims[lv]).max(), share(meas[lv]).max())
+    s, m = sims[level], meas[level]
+    steps = [n for n in (25, 50, 100, 200, 400, 800, 1600, len(s)) if n <= len(s)]
+
+    def counts(v):
+        return np.histogram(np.clip(v, lo, hi - 1e-9), edges)[0]
+
+    span = [f"{10 ** a:,.0f}–{10 ** b:,.0f}" for a, b in zip(edges[:-1], edges[1:])]
+
+    def frame(n):
+        return [go.Bar(x=centres, y=share(s[:n]), name=f"Monte Carlo, {len(s):,} draws",
+                       marker_color=NAVY, offsetgroup="sim",
+                       customdata=np.column_stack([span, counts(s[:n])]),
+                       hovertemplate="%{customdata[0]} cycles<br>%{y:.1f}% of %{meta} draws"
+                                     "<extra>simulated</extra>", meta=f"{n:,}"),
+                go.Bar(x=centres, y=share(m), name=f"Measured, {len(m)} independent cylinders",
+                       marker_color=MEAS, offsetgroup="meas",
+                       customdata=np.column_stack([span, counts(m)]),
+                       hovertemplate="%{customdata[0]} cycles<br>%{customdata[1]} of "
+                                     f"{len(m)} cylinders<extra>measured</extra>")]
+    fig = go.Figure(data=frame(steps[0]))
+    fig.frames = [go.Frame(data=frame(n), name=f"{n:,} draws") for n in steps]
+    fig.update_layout(barmode="group", bargap=0.25, height=H_MAIN + 20, margin=dict(t=20, b=140),
+                      xaxis=dict(title="cycles to failure (log scale)", range=[lo, hi],
+                                 **cycle_ticks(lo, hi)),
+                      yaxis=dict(title="share of population (%)",
+                                 range=[0, np.ceil(top / 5) * 5]),
+                      legend=LEGEND)
+    return fig, len(m)
+
+
 def _render_monte_carlo():
     st.markdown("## Monte Carlo: a distribution of lives")
     mc = _json(MCB_DATA, "monte_carlo_results.json")
@@ -292,42 +350,24 @@ def _render_monte_carlo():
 
     smax = st.radio("Stress level", ["300 MPa", "450 MPa"], horizontal=True,
                     key="mc_stress")
-    sn = mc["sn"][smax.split()[0]]
-    logN = np.log10(np.asarray(sn["N_samples"], float))
-    bins = np.linspace(np.floor(logN.min() * 4) / 4, 7.0 + 1e-9, 41)
-    steps = [n for n in (25, 50, 100, 200, 400, 800, 1600, len(logN)) if n <= len(logN)]
-    ymax = np.histogram(logN, bins)[0].max() * 1.15
-
-    def hist_frame(n):
-        h, _ = np.histogram(logN[:n], bins)
-        centres = 0.5 * (bins[1:] + bins[:-1])
-        return [go.Bar(x=centres, y=h, width=np.diff(bins) * 0.95, marker_color=NAVY)]
-
-    fig = go.Figure(data=hist_frame(steps[0]))
-    fig.frames = [go.Frame(data=hist_frame(n), name=f"{n:,} draws") for n in steps]
-    for p, label in ((sn["log10_p5"], "5th percentile"), (sn["log10_p50"], "median")):
-        fig.add_vline(x=p, line_dash="dash", line_color=GREY, annotation_text=label)
-    fig.update_layout(xaxis_title="log₁₀ cycles to failure", yaxis_title="virtual parts",
-                      yaxis_range=[0, ymax], height=400, margin=dict(t=20, b=110),
-                      bargap=0)
+    level = smax.split()[0]
+    sn = mc["sn"][level]
+    fig, n_meas = mc_figure(mc, level)
     play(fig, frame_ms=600, transition_ms=300, slider_prefix="")
     show(fig)
     pct = 100 * sn["n_at_runout"] / sn["n_total"]
-    st.caption(
-        f"The distribution building up as draws arrive ({len(logN):,} of the "
-        f"{sn['n_total']:,} draws are shipped with the app; percentages are counted on "
-        f"all {sn['n_total']:,}). Median life {10 ** sn['log10_p50']:,.0f} cycles; "
-        f"run-outs {pct:.1f}%.")
+    st.caption(f"Simulated (navy) against measured (slate), same axes at both stresses. "
+               f"Median {10 ** sn['log10_p50']:,.0f} cycles; run-outs {pct:.1f}%.")
     val = mc.get("validation_independent", {}).get(smax.split()[0])
     if val:
         st.markdown(
             f"**Against the measured record.** Both priors come from the 14 held-out "
-            f"cylinders, so the other {val['n_tested']} tested at {smax} are independent of "
-            f"the simulation. Their median life is {val['median_measured']:,.0f} cycles "
-            f"against {val['median_simulated']:,.0f} simulated; {val['n_inside_5_95']} of "
-            f"their {val['n_failed']} failures fall inside the simulated 5th to 95th "
-            f"percentile band, and a Kolmogorov–Smirnov test finds no difference "
-            f"(p = {val['ks_p']:.2f}).")
+            f"cylinders, so the other {val['n_tested']} tested at this stress are "
+            f"independent of the simulation. Their median life is "
+            f"{val['median_measured']:,.0f} cycles against {val['median_simulated']:,.0f} "
+            f"simulated; {val['n_inside_5_95']} of their {val['n_failed']} failures fall "
+            f"inside the simulated 5th to 95th percentile band, and a Kolmogorov–Smirnov "
+            f"test finds no difference (p = {val['ks_p']:.2f}).")
         if val["n_runout"]:
             finding(
                 f"<b>Where it falls short.</b> {val['n_runout']} of those cylinders ran out "
@@ -349,9 +389,9 @@ def _render_monte_carlo():
     ref = v2["rmse"].iloc[0] * np.sqrt(v2["n_samples"].iloc[0] / v2["n_samples"])
     figv2.add_trace(go.Scatter(x=v2["n_samples"], y=ref, mode="lines", name="M^(−1/2)",
                                line=dict(color=GREY, dash="dot")))
-    figv2.update_layout(xaxis_type="log", yaxis_type="log", height=300,
+    figv2.update_layout(xaxis_type="log", yaxis_type="log", height=H_AUX,
                         xaxis_title="draws M", yaxis_title="RMSE of the median (decades)",
-                        margin=dict(t=10), legend=dict(orientation="h", y=1.1))
+                        margin=dict(t=10), legend=LEGEND)
     show(figv2)
     st.caption(f"Each sample size repeated {int(v2['n_repeats'].iloc[0])} times. The error "
                "of the median falls close to the M^(−1/2) rate of Monte Carlo.")
@@ -359,7 +399,7 @@ def _render_monte_carlo():
     with st.expander("Check of the defect-size prior"):
         v1 = pd.DataFrame(mc["verify_extremes"]).sort_values("percentile")
         figv1 = go.Figure(go.Bar(x=v1["specimen"], y=v1["percentile"], marker_color=NAVY))
-        figv1.update_layout(yaxis_title="leave-one-out percentile (%)", height=300,
+        figv1.update_layout(yaxis_title="leave-one-out percentile (%)", xaxis_title="held-out cylinder", height=H_AUX,
                             yaxis_range=[0, 100], margin=dict(t=10))
         show(figv1)
         st.caption(f"Each specimen's own governing defect placed in a fit made without it. "
@@ -430,14 +470,14 @@ def _render_bayesian():
     fig = go.Figure(data=bframe(0))
     fig.frames = [go.Frame(data=bframe(k), name=f"inspection {k + 1}")
                   for k in range(len(H))]
-    fig.add_hline(y=truth, line_dash="dash", line_color=GREEN,
+    fig.add_hline(y=truth, line_dash="dash", line_color=MEAS,
                   annotation_text="true life" if "Synthetic" in which else "measured life")
     fig.update_layout(yaxis=dict(type="log", range=[np.log10(ylo), np.log10(yhi)],
                                  title="predicted cycles to failure"),
                       xaxis=dict(range=[0, H["N_inspection"].max() * 1.08],
                                  title="cycles inspected so far"),
-                      height=420, margin=dict(t=20, b=110),
-                      legend=dict(orientation="h", y=1.08))
+                      height=H_MAIN, margin=dict(t=20, b=110),
+                      legend=LEGEND)
     play(fig, frame_ms=1000, transition_ms=300, slider_prefix="")
     show(fig)
     last = hist[-1]

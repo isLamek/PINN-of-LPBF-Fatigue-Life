@@ -10,6 +10,7 @@ from PIL import Image
 
 from src import ct_viewer as cv
 from src.data import FOLD_DICE, HELDOUT_SIZE_R2, STUDY_METRICS
+from src.figstyle import H_AUX, H_MAIN, LEGEND, MEAS, PARITY, cycle_ticks, parity
 from src.ui import GREY, NAVY, RED, finding, note, play, show, spec
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -121,7 +122,7 @@ def render():
                       annotation_text="criterion 0.80", annotation_position="bottom right")
         fig.add_hline(y=mean, line_dash="dash", line_color=GREY,
                       annotation_text=f"mean {mean:.3f}", annotation_position="top left")
-        fig.update_layout(yaxis_range=[0.75, 0.85], yaxis_title="Dice", height=340,
+        fig.update_layout(yaxis_range=[0.75, 0.85], yaxis_title="Dice", xaxis_title="cross-validation fold", height=H_AUX,
                           margin=dict(t=20, b=10), title="Dice by cross-validation fold")
         show(fig)
         st.caption("Every fold lands close to the mean: the result does not hang on one "

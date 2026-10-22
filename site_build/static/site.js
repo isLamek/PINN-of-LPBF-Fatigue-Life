@@ -151,7 +151,7 @@
   function growth(divId, key) {
     var gd = document.getElementById(divId);
     var D = json(gd.dataset.curves)[key];
-    var navy = "#1F4E79", red = "#8B1E1E", grey = "#8A949C", green = "#2E6B3A";
+    var navy = "#1F4E79", red = "#8B1E1E", grey = "#8A949C", green = "#4A5560";  // measured
     function traces(j) {
       return [
         { x: D.N.slice(0, j + 1), y: D.a.slice(0, j + 1), mode: "lines",
@@ -170,7 +170,7 @@
       }),
       layout: {
         template: gd.dataset.template ? json(gd.dataset.template) : undefined,
-        height: 430, showlegend: false, margin: { l: 60, r: 20, t: 40, b: 110 },
+        height: 420, showlegend: false, margin: { l: 60, r: 20, t: 40, b: 110 },
         font: { family: '"Source Sans 3", "Segoe UI", Arial, sans-serif', size: 13, color: "#1E2A36" },
         xaxis: { domain: [0, 0.58], range: [0, Math.max(D.Nf, D.meas) * 1.08],
                  title: { text: "cycles" }, gridcolor: "#E6E9EC" },
@@ -278,12 +278,12 @@
         { x: grid, y: C, mode: "lines", name: "C1", line: { color: "#8B1E1E", dash: "dot" } },
         { x: near.map(function (r) { return r.sa; }), y: near.map(function (r) { return r.Nf; }),
           mode: "markers", name: "measured, Δσ within 60 MPa",
-          marker: { size: 9, color: "#1E2A36", symbol: "x" } }];
-      var layout = { height: 440, font: { family: '"Source Sans 3", "Segoe UI", Arial, sans-serif',
+          marker: { size: 8, color: "#4A5560" } }];
+      var layout = { height: 420, font: { family: '"Source Sans 3", "Segoe UI", Arial, sans-serif',
           size: 13, color: "#1E2A36" }, margin: { l: 70, r: 20, t: 30, b: 50 },
         xaxis: { title: { text: "governing defect √area (µm)" }, gridcolor: "#E6E9EC" },
         yaxis: { type: "log", title: { text: "cycles to failure" }, gridcolor: "#E6E9EC" },
-        legend: { orientation: "h", y: 1.12 },
+        legend: { orientation: "h", x: 0, xanchor: "left", y: 1.1, yanchor: "bottom" },
         shapes: [{ type: "line", xref: "x", yref: "paper", x0: sa, x1: sa, y0: 0, y1: 1,
                    line: { color: "#D3D8DD" } }] };
       Plotly.react(gd, data, layout, CONFIG);

@@ -10,6 +10,7 @@ import streamlit as st
 
 from src import ct_viewer as cv
 from src.data import GAUGE_ND, GAUGE_SA, STUDY_METRICS, load
+from src.figstyle import H_AUX, H_MAIN, LEGEND, MEAS, PARITY, cycle_ticks, parity
 from src.ui import GREY, MUTED, NAVY, RED, TITLE, go_to, note, show
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -45,7 +46,7 @@ def render():
     # ------------------------------------------------------------- the problem
     st.markdown("## The problem in the measured data")
     fig = go.Figure()
-    for s, col in ((300, NAVY), (450, RED)):
+    for s, col in ((300, MEAS), (450, MEAS)):
         pts = sorted((r for r in rows if abs(r["smax"] - s) < 1), key=lambda r: r["Nf"])
         x = [s + (k / max(len(pts) - 1, 1) - 0.5) * 36 for k in range(len(pts))]
         fig.add_trace(go.Scatter(
@@ -55,7 +56,7 @@ def render():
             text=[f"{r['specimen']}: {r['Nf']:,} cycles" + (", run-out" if r["runout"] else "")
                   for r in pts], hoverinfo="text"))
     f450 = [r["Nf"] for r in rows if abs(r["smax"] - 450) < 1 and not r["runout"]]
-    fig.update_layout(height=380, yaxis_type="log", yaxis_title="cycles to failure",
+    fig.update_layout(height=H_MAIN, yaxis_type="log", yaxis_title="cycles to failure",
                       xaxis=dict(tickvals=[300, 450], ticktext=["300 MPa", "450 MPa"],
                                  range=[255, 495], title="maximum stress"),
                       showlegend=False, margin=dict(t=10))
